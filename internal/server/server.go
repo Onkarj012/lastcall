@@ -30,15 +30,16 @@ type Server struct {
 	st         *state.Store
 	quotaEvery time.Duration
 
-	mu         sync.Mutex
-	creds      []cpa.Credential
-	credsAt    time.Time
-	credsErr   string
-	quota      map[string]quota.Result // by credential name
-	quotaAt    time.Time
-	lastForced time.Time
-	refreshing bool
-	routeErr   string
+	mu          sync.Mutex
+	creds       []cpa.Credential
+	credsAt     time.Time
+	credsErr    string
+	quota       map[string]quota.Result // by credential name
+	quotaAt     time.Time
+	lastForced  time.Time
+	refreshing  bool
+	routeErr    string
+	sweepQueued bool
 
 	quotaMu sync.Mutex // one quota sweep at a time
 }
@@ -49,8 +50,7 @@ func New(c *cpa.Client, st *state.Store, quotaEvery time.Duration) *Server {
 
 // Run starts the background loops and blocks until ctx ends.
 func (s *Server) Run(ctx context.Context) {
-	s.refreshCreds(ctx)
-	go s.refreshQuota(ctx)
+	s.refreshCreds(ctx) // also starts the first quota sweep once accounts are listed
 	credT := time.NewTicker(credsEvery)
 	quotaT := time.NewTicker(s.quotaEvery)
 	pauseT := time.NewTicker(pauseEvery)
@@ -89,6 +89,11 @@ func (s *Server) refreshCreds(ctx context.Context) {
 		return creds[i].Name < creds[j].Name
 	})
 	s.creds, s.credsAt, s.credsErr = creds, time.Now(), ""
+	// First successful listing (e.g. the key file just appeared): don't wait for the timer.
+	if s.quotaAt.IsZero() && !s.refreshing && len(creds) > 0 && !s.sweepQueued {
+		s.sweepQueued = true
+		go s.refreshQuota(context.WithoutCancel(ctx))
+	}
 }
 
 // refreshQuota sweeps every supported, enabled account. Disabled accounts keep
@@ -99,6 +104,7 @@ func (s *Server) refreshQuota(ctx context.Context) {
 	s.mu.Lock()
 	creds := append([]cpa.Credential(nil), s.creds...)
 	s.refreshing = true
+	s.sweepQueued = false
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()

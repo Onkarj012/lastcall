@@ -394,9 +394,10 @@ func xai(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 	if wErr == nil {
 		b := decodeXai(weeklyRaw)
 		if b.CurrentPeriod != nil && strings.Contains(strings.ToLower(b.CurrentPeriod.Type), "week") {
-			if used, ok := num(b.CreditUsagePercent); ok {
-				r.Windows = append(r.Windows, Window{Name: "Weekly", Kind: "week", Left: usedToLeft(used), ResetAt: instant(b.CurrentPeriod.End)})
-			}
+			// xAI omits zero-valued fields (protobuf JSON), so a weekly period with no
+			// creditUsagePercent means nothing used yet. Seen live 2026-10-02.
+			used, _ := num(b.CreditUsagePercent)
+			r.Windows = append(r.Windows, Window{Name: "Weekly", Kind: "week", Left: usedToLeft(used), ResetAt: instant(b.CurrentPeriod.End)})
 		}
 		for _, p := range b.ProductUsage {
 			if used, ok := num(p.UsagePercent); ok && p.Product != "" {

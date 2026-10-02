@@ -259,9 +259,12 @@
       g += `<polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${dim ? '#36312d' : p.color}" stroke-width="1.4"/>`;
       if (!dim) ends.push({ p, y: pts.at(-1)[1], n: xs.reduce((s, v) => s + v, 0) });
     }
+    // Stack labels top-down 13px apart, then shift the stack up if it ran off the bottom.
     ends.sort((a, b) => a.y - b.y);
+    for (const e of ends) { e.ly = Math.max(e.y, last + 13); last = e.ly; }
+    const over = Math.max(0, last - (H - 4));
     for (const e of ends) {
-      const y = Math.min(H - 4, Math.max(e.y, last + 13)); last = y;
+      const y = e.ly - over;
       g += `<svg x="${W - R + 8}" y="${y - 6}" width="11" height="11" viewBox="0 0 24 24" fill="${e.p.color}">${LOGOS[e.p.logo] ?? ''}</svg>
         <text x="${W - R + 23}" y="${y + 4}" fill="${e.p.color}" font-family="DM Sans" font-size="11" font-weight="600">${e.n}</text>`;
     }
