@@ -32,6 +32,7 @@ type accountView struct {
 	Failed         int64         `json:"failed"`
 	Recent         []cpa.Bucket  `json:"recent"`
 	Supported      bool          `json:"supported"`
+	Local          bool          `json:"local,omitempty"` // read from this Mac, not CPA; no actions
 	Quota          *quota.Result `json:"quota,omitempty"`
 	Pause          *state.Pause  `json:"pause,omitempty"`
 	Route          *routing.Slot `json:"route,omitempty"`
@@ -39,6 +40,7 @@ type accountView struct {
 
 type snapshot struct {
 	Now        time.Time     `json:"now"`
+	CPAURL     string        `json:"cpa_url"`
 	CredsAt    time.Time     `json:"creds_at"`
 	QuotaAt    time.Time     `json:"quota_at"`
 	QuotaEvery int           `json:"quota_every_s"`
@@ -78,6 +80,7 @@ func (s *Server) snapshot() snapshot {
 	}
 	out := snapshot{
 		Accounts: []accountView{},
+		CPAURL:   s.cpaURL,
 		Now:      time.Now(), CredsAt: s.credsAt, QuotaAt: s.quotaAt, QuotaEvery: int(s.quotaEvery.Seconds()),
 		Refreshing: s.refreshing, Error: errMsg, Pins: d.Pins,
 		Routing: routingView{Auto: d.Routing.Auto, Managed: d.Routing.Managed, Applied: len(d.Routing.Written) > 0, Error: s.routeErr, Pools: pools},
@@ -107,6 +110,13 @@ func (s *Server) snapshot() snapshot {
 			v.Route = &sl
 		}
 		out.Accounts = append(out.Accounts, v)
+	}
+	if s.oc != nil && s.ocResult != nil {
+		r := *s.ocResult
+		out.Accounts = append(out.Accounts, accountView{
+			Name: "opencode-go", Provider: "opencode", Label: "this Mac", Plan: r.Plan,
+			Status: "active", Supported: true, Local: true, Quota: &r, Recent: []cpa.Bucket{},
+		})
 	}
 	return out
 }

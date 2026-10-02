@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
+	"lastcall/internal/opencode"
 	"lastcall/internal/quota"
 	"lastcall/internal/routing"
 	"lastcall/internal/state"
@@ -26,6 +27,9 @@ const (
 )
 
 type Server struct {
+	cpaURL     string
+	oc         *opencode.Reader
+	ocResult   *quota.Result
 	cpa        *cpa.Client
 	st         *state.Store
 	quotaEvery time.Duration
@@ -44,8 +48,22 @@ type Server struct {
 	quotaMu sync.Mutex // one quota sweep at a time
 }
 
-func New(c *cpa.Client, st *state.Store, quotaEvery time.Duration) *Server {
-	return &Server{cpa: c, st: st, quotaEvery: quotaEvery, quota: map[string]quota.Result{}}
+func New(cpaURL string, c *cpa.Client, st *state.Store, quotaEvery time.Duration, oc *opencode.Reader) *Server {
+	return &Server{cpaURL: cpaURL, cpa: c, st: st, quotaEvery: quotaEvery, oc: oc, quota: map[string]quota.Result{}}
+}
+
+// refreshOpenCode re-reads opencode's local db. It's a local query, so it runs
+// on the fast credentials tick.
+func (s *Server) refreshOpenCode(ctx context.Context) {
+	if s.oc == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	r := s.oc.Read(cctx)
+	s.mu.Lock()
+	s.ocResult = &r
+	s.mu.Unlock()
 }
 
 // Run starts the background loops and blocks until ctx ends.
@@ -72,6 +90,7 @@ func (s *Server) Run(ctx context.Context) {
 }
 
 func (s *Server) refreshCreds(ctx context.Context) {
+	s.refreshOpenCode(ctx)
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	creds, err := s.cpa.Credentials(cctx)

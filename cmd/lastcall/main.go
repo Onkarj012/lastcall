@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
+	"lastcall/internal/opencode"
 	"lastcall/internal/server"
 	"lastcall/internal/state"
 	"lastcall/web"
@@ -26,6 +27,8 @@ func main() {
 	keyPath := flag.String("key", filepath.Join(home, ".config/lastcall/management-key"), "file holding the CPA management key")
 	statePath := flag.String("state", filepath.Join(home, "Library/Application Support/lastcall/state.json"), "lastcall state file")
 	quotaEvery := flag.Duration("quota-every", 5*time.Minute, "how often to poll provider quota")
+	ocDB := flag.String("opencode-db", filepath.Join(home, ".local/share/opencode/opencode.db"), "opencode database (empty to skip)")
+	ocPlan := flag.String("opencode-plan", "go", "OpenCode Go plan: go | go-plus")
 	flag.Parse()
 
 	if host, _, err := net.SplitHostPort(*listen); err == nil {
@@ -38,7 +41,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("state: %v", err)
 	}
-	srv := server.New(cpa.New(*cpaURL, *keyPath), st, *quotaEvery)
+	var oc *opencode.Reader
+	if _, err := os.Stat(*ocDB); *ocDB != "" && err == nil {
+		oc = &opencode.Reader{DB: *ocDB, Plan: *ocPlan}
+	}
+	srv := server.New(*cpaURL, cpa.New(*cpaURL, *keyPath), st, *quotaEvery, oc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

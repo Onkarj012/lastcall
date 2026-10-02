@@ -8,6 +8,7 @@
     codex: { name: 'Codex', logo: 'openai', color: '#f1f3f5', shades: ['#f1f3f5', '#939daa', '#c5cbd3', '#6b7380'] },
     antigravity: { name: 'Antigravity', logo: 'antigravity', color: '#56ca80', shades: ['#56ca80', '#8fdcaa'] },
     xai: { name: 'Grok', logo: 'xai', color: '#9b94ee', shades: ['#9b94ee', '#c3beff'] },
+    opencode: { name: 'opencode', logo: 'opencode', color: '#52cdd2', shades: ['#52cdd2'] },
   };
   const LOGIN = [['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['xai', 'Grok']];
   const prov = id => PROVIDERS[id] ?? { name: id, logo: null, color: '#aaa39d', shades: ['#aaa39d'] };
@@ -131,10 +132,11 @@
   function draw() {
     const now = Date.now();
     drawStatus(now);
-    drawTotals(now);
-    drawSubs(now);
-    drawActivity();
-    drawRouting();
+    const view = location.hash === '#settings' ? 'settings' : 'usage';
+    document.querySelectorAll('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === view));
+    $('usage').hidden = view !== 'usage';
+    $('settings').hidden = view !== 'settings';
+    if (view === 'usage') { drawTotals(now); drawSubs(now); } else drawSettings(now);
     $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.length} credentials · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
   }
 
@@ -184,9 +186,8 @@
     else if (a.disabled) b.push(`<span class="badge bad">disabled</span>`);
     if (a.unavailable && !a.disabled) b.push(`<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`);
     if (a.status === 'error' && a.status_message) b.push(`<span class="badge bad" title="${esc(a.status_message)}">error</span>`);
-    if (a.route?.rank === 1 && snap.routing.applied) b.push(`<span class="badge route">routing first</span>`);
-    else if (a.route?.rank) b.push(`<span class="badge route">${snap.routing.applied ? '' : 'suggested '}#${a.route.rank}</span>`);
-    if (a.priority) b.push(`<span class="badge" title="CPA priority">prio ${a.priority}</span>`);
+    if (snap.routing.applied && a.route?.rank === 1) b.push(`<span class="badge route">routing first</span>`);
+    else if (snap.routing.applied && a.route?.rank) b.push(`<span class="badge route">#${a.route.rank} in line</span>`);
     return b.join('');
   }
 
@@ -197,18 +198,18 @@
       const { main, extra } = split(a);
       const q = a.quota;
       const meta = [
-        ...extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`),
+        ...(a.local ? [] : extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`)),
         ...(q?.meta ?? []).map(([k, v]) => `${esc(k)} ${esc(v)}`),
-        `${a.success.toLocaleString()} ok · ${a.failed} failed`,
+        ...(a.local ? ['estimated from this Mac\'s opencode history'] : [`${a.success.toLocaleString()} ok · ${a.failed} failed`]),
       ];
       return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" data-name="${esc(a.name)}">
         <div class="top"><div class="who">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
           <button class="pin ${pinned ? 'on' : ''}" data-pin="${a.provider}" title="${pinned ? 'Unpin' : 'Pin'} ${p.name}">${PIN(pinned)}</button>
-          <button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button></div>
+          ${a.local ? '' : `<button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button>`}</div>
         <div class="badges">${badges(a, now)}</div>
-        ${!a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
+        ${a.local ? ocBody(a, now) : !a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
           : !q ? `<div class="meta">${a.disabled ? 'disabled; quota not fetched' : 'quota pending…'}</div>`
-          : main.map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
+          : (a.local ? [] : main).map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
               <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`).join('')}
         ${q?.error ? `<div class="qerr" title="${esc(q.error)}">quota: ${esc(q.error.slice(0, 140))}</div>` : ''}
         <div class="meta">${meta.join(' · ')}${q?.at ? ` · read ${fmt.ago(now - new Date(q.at))}` : ''}</div>
@@ -233,59 +234,67 @@
     </div>`;
   }
 
-  // Requests per 10-minute bucket over the last 200 minutes, from CPA's own counters.
-  function drawActivity() {
-    const by = {};
-    let ok = 0, failed = 0, life = 0, lifeFail = 0;
-    for (const a of snap.accounts) {
-      life += a.success; lifeFail += a.failed;
-      const r = a.recent ?? [];
-      by[a.provider] ??= Array(r.length).fill(0);
-      r.forEach((b, i) => { by[a.provider][i] = (by[a.provider][i] ?? 0) + b.success + b.failed; ok += b.success; failed += b.failed; });
-    }
-    $('stats').innerHTML = `<div><b>${(ok + failed).toLocaleString()}</b><span>requests · 200 min</span></div>
-      <div><b>${failed}</b><span>failed · 200 min</span></div>
-      <div><b>${life ? ((life / (life + lifeFail)) * 100).toFixed(1) : '—'}%</b><span>success since CPA start</span></div>`;
-
-    const svg = $('spark'), W = svg.clientWidth || 500, H = 64, R = 70;
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    const series = Object.entries(by).filter(([, xs]) => xs.length > 1);
-    const max = Math.max(4, ...series.flatMap(([, xs]) => xs));
-    let g = '', last = -Infinity;
-    const ends = [];
-    for (const [k, xs] of series) {
-      const p = prov(k), dim = !snap.pins.includes(k);
-      const pts = xs.map((v, i) => [(i / (xs.length - 1)) * (W - R), (H - 6) * (1 - v / max) + 3]);
-      g += `<polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${dim ? '#36312d' : p.color}" stroke-width="1.4"/>`;
-      if (!dim) ends.push({ p, y: pts.at(-1)[1], n: xs.reduce((s, v) => s + v, 0) });
-    }
-    // Stack labels top-down 13px apart, then shift the stack up if it ran off the bottom.
-    ends.sort((a, b) => a.y - b.y);
-    for (const e of ends) { e.ly = Math.max(e.y, last + 13); last = e.ly; }
-    const over = Math.max(0, last - (H - 4));
-    for (const e of ends) {
-      const y = e.ly - over;
-      g += `<svg x="${W - R + 8}" y="${y - 6}" width="11" height="11" viewBox="0 0 24 24" fill="${e.p.color}">${LOGOS[e.p.logo] ?? ''}</svg>
-        <text x="${W - R + 23}" y="${y + 4}" fill="${e.p.color}" font-family="DM Sans" font-size="11" font-weight="600">${e.n}</text>`;
-    }
-    svg.innerHTML = g;
+  // OpenCode Go: one row per model, bar = tightest of its 5h/weekly/monthly dollar windows.
+  function ocBody(a, now) {
+    const ws = a.quota?.windows ?? [];
+    const models = [...new Set(ws.map(w => w.model))];
+    if (!models.length) return `<div class="meta">No capped Go model used in the last 30 days.</div>`;
+    const usd = n => `$${n < 10 ? n.toFixed(2) : n.toFixed(1)}`;
+    return models.map(m => {
+      const mw = ws.filter(w => w.model === m);
+      const tight = mw.reduce((x, y) => (y.left < x.left ? y : x));
+      const part = w => `${{ '5h': '5h', week: 'wk', month: 'mo' }[w.kind]} ${usd(w.cap - (w.spent ?? 0))}`;
+      return `<div class="lim oc"><div class="t"><span>${esc(m)}</span><span class="v ${state(tight.left)}">${mw.map(part).join(' · ')}</span></div>
+        <div class="track"><i style="width:${tight.left * 100}%;background:${state(tight.left) === 'out' ? 'var(--out)' : prov('opencode').color}"></i></div></div>`;
+    }).join('') + `<div class="meta">left of each cap · tightest window drawn${tight5(ws, now)}</div>`;
   }
+  const tight5 = (ws, now) => {
+    const f = ws.filter(w => w.kind === "5h" && w.spent && w.reset_at).sort((x, y) => new Date(x.reset_at) - new Date(y.reset_at))[0];
+    return f ? ` · 5h frees from ${until(f.reset_at, now)}` : '';
+  };
 
-  function drawRouting() {
+  function drawSettings(now) {
     const r = snap.routing;
     const lbl = name => short(snap.accounts.find(a => a.name === name)?.label ?? name);
     const pools = r.pools.map(pl => {
       const p = prov(pl.provider);
-      if (pl.frozen) return `<div class="pool">${p.name}: <span class="low">paused, ${esc(pl.frozen)}</span></div>`;
-      const ranked = pl.slots.filter(s => s.rank).map(s => lbl(s.name));
-      const skipped = pl.slots.filter(s => !s.rank).map(s => `${lbl(s.name)} (${esc(s.reason)})`);
-      return `<div class="pool" title="${esc(skipped.join(', '))}">${p.name}: ${ranked.join(' → ') || 'nothing usable'}${skipped.length ? ` <span class="mute">· skip ${skipped.join(', ')}</span>` : ''}</div>`;
+      if (pl.frozen) return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="low">waiting: ${esc(pl.frozen)}</span></div>`;
+      const ranked = pl.slots.filter(x => x.rank).map(x => lbl(x.name));
+      const skipped = pl.slots.filter(x => !x.rank).map(x => `${lbl(x.name)} (${esc(x.reason)})`);
+      return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="order">${ranked.join(' → ') || 'nothing usable'}${skipped.length ? ` <span class="skip">· skips ${skipped.join(', ')}</span>` : ''}</span></div>`;
     }).join('');
-    $('route').innerHTML = `<div class="hd"><b>Reset-first routing</b>
-        <span class="toggle ${r.auto ? 'on' : ''}" data-auto="${r.auto ? 0 : 1}" title="Re-apply after every quota sweep"><i></i>auto</span>
-        <span class="btns"><button class="btn primary" data-route="apply">Apply</button>${r.applied ? '<button class="btn" data-route="restore">Restore</button>' : ''}</span></div>
-      ${pools || '<div class="pool">No managed providers.</div>'}
-      <div class="note">${r.error ? `<span class="out">${esc(r.error)}</span>` : r.applied ? 'Priorities written to CPA. Restore puts back the originals.' : 'Dry run: nothing written to CPA until you press Apply.'}</div>`;
+    const present = [...new Set(snap.accounts.map(a => a.provider))];
+    const qAt = new Date(snap.quota_at);
+    $('settings').innerHTML = `
+      <section class="panel">
+        <h2>Reset-first routing
+          <span class="btns">
+            <span class="toggle ${r.auto ? 'on' : ''}" data-auto="${r.auto ? 0 : 1}"><i></i>Auto</span>
+            <button class="btn primary" data-route="apply">Apply now</button>
+            ${r.applied ? '<button class="btn" data-route="restore">Restore originals</button>' : ''}
+          </span></h2>
+        <p>Sends traffic to the account whose weekly allowance resets soonest, so it gets used before it expires. Skips accounts that are disabled, cooling down, or out of a 5-hour or weekly window. ${r.auto ? 'Auto re-applies after every quota check.' : 'Nothing is written to CLIProxyAPI until you apply.'}</p>
+        <div class="rows">${pools || '<div class="r mute">No managed providers have accounts.</div>'}</div>
+        <p style="font-size:13px">${r.error ? `<span class="out">${esc(r.error)}</span>` : r.applied ? 'Priorities are written to CLIProxyAPI. Restore puts back what was there before, skipping any value changed elsewhere.' : 'Status: dry run.'}</p>
+      </section>
+      <section class="panel">
+        <h2>Pinned providers</h2>
+        <p>Pinned providers get a combined card at the top of Usage and are listed first.</p>
+        <div class="rows">${present.map(id => {
+          const p = prov(id), on = snap.pins.includes(id);
+          return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="toggle end ${on ? 'on' : ''}" data-pin="${id}"><i></i>${on ? 'Pinned' : 'Not pinned'}</span></div>`;
+        }).join('')}</div>
+      </section>
+      <section class="panel">
+        <h2>Connection</h2>
+        <div class="rows">
+          <div class="r">CLIProxyAPI<span class="mono end">${esc(snap.cpa_url)}</span></div>
+          <div class="r">Management key<span class="mono end ${snap.error ? 'out' : ''}">${snap.error ? esc(snap.error) : 'accepted'}</span></div>
+          <div class="r">Quota check<span class="mono end">every ${Math.round(snap.quota_every_s / 60)} min · last ${qAt.getFullYear() > 2000 ? fmt.ago(now - qAt) : 'pending'}</span></div>
+          <div class="r">opencode<span class="mono end">${snap.accounts.some(a => a.local) ? 'Go caps · read from ~/.local/share/opencode' : 'database not found'}</span></div>
+        </div>
+        <p style="font-size:13px">Config, logs and plugins stay in <a href="${esc(snap.cpa_url)}/management.html" target="_blank" rel="noopener">CLIProxyAPI's own panel</a>.</p>
+      </section>`;
   }
 
   // ---- login modal ----
@@ -366,6 +375,7 @@
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
   $('add').addEventListener('click', () => loginModal());
 
+  addEventListener('hashchange', () => snap && draw());
   load();
   setInterval(load, POLL);
 })();

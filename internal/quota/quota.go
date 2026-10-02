@@ -21,6 +21,10 @@ type Window struct {
 	Kind    string     `json:"kind"` // 5h | week | month | other
 	Left    float64    `json:"left"`
 	ResetAt *time.Time `json:"reset_at,omitempty"`
+	// Dollar-metered windows (OpenCode Go) also carry the model and amounts.
+	Model string  `json:"model,omitempty"`
+	Cap   float64 `json:"cap,omitempty"`
+	Spent float64 `json:"spent,omitempty"`
 }
 
 type Result struct {
