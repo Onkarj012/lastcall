@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Terminal</title>
+<link rel="stylesheet" href="quota.css">
+<style>
+.term { background: #050505; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px 24px; font-family: var(--mono); font-size: 13px; line-height: 1.75; white-space: pre; overflow-x: auto; }
+  .term .p { color: var(--ok); }
+  .term .h { color: var(--fg); font-weight: 600; }
+  .term .d { color: var(--dim); }
+  .term .m { color: var(--mute); }
+  .term .gap { display: block; height: 10px; }
+</style>
+</head>
+<body>
+<nav class="mocks"><a href="index.html">All mocks</a><a href="cards.html">1 · Cards</a><a href="rows.html">2 · Rows</a><a href="term.html" aria-current="page">3 · Terminal</a></nav>
+<div class="head">
+  <div><h1>Quota</h1><div class="sub" data-sub>6 credentials</div></div>
+  <div class="right"><span data-status>Fetching quota…</span><button class="refresh" data-refresh><svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/></svg>Refresh</button></div>
+</div>
+<main><div class="term" id="app"></div></main>
+<script src="logos.js"></script>
+<script src="quota.js"></script>
+<script>
+const { fmt, level } = quota;
+  const W = 24;
+  const blocks = left => {
+    const n = Math.round(left * W);
+    return `<span class="${level(left)}">${'█'.repeat(n)}</span><span class="d">${'░'.repeat(W - n)}</span>`;
+  };
+  const pad = (s, n) => s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
+  quota.mount((s, now) => {
+    document.querySelector('[data-sub]').textContent = `${s.creds.length} credentials`;
+    const groups = [...new Set(s.creds.map(c => c.provider))];
+    let out = `<span class="p">$</span> lastcall quota <span class="d"># ${fmt.when(s.fetchedAt)}</span>\n<span class="gap"></span>`;
+    for (const g of groups) {
+      out += `<span class="h">${s.providers[g].name.toUpperCase()}</span>\n`;
+      for (const c of s.creds.filter(x => x.provider === g)) {
+        c.limits.forEach((l, i) => {
+          const who = i === 0 ? `<span class="h">${pad(c.name, 17)}</span><span class="m">${pad(c.plan, 11)}</span>` : ' '.repeat(28);
+          out += `  ${who}${pad(l.name, 21)}${blocks(l.left)}  <span class="${level(l.left)}">${fmt.pct(l.left).padStart(4)}</span>  <span class="m">${l.resetAt ? `resets in ${fmt.in(l.resetAt - now)}` : 'no active window'}</span>\n`;
+        });
+        if (c.meta.length) out += `  ${' '.repeat(28)}<span class="d">${c.meta.map(([k, v]) => `${k.toLowerCase()} ${v}`).join(' · ')}</span>\n`;
+      }
+      out += '<span class="gap"></span>';
+    }
+    document.getElementById('app').innerHTML = out;
+  });
+</script>
+</body>
+</html>

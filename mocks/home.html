@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Quota</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px 1fr auto auto 30px; overflow: hidden; }
+
+  /* Pinned pools: the only big things on the page. */
+  .pinned { display: grid; grid-template-columns: repeat(var(--n), 1fr); min-height: 0; }
+  .card { position: relative; padding: 24px 28px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 22px; min-height: 0; }
+  .card:last-child { border-right: 0; }
+  .card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--c); }
+  .card .who { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; }
+  .card .who small { font-size: 12px; font-weight: 400; color: var(--mute); }
+  .pin { margin-left: auto; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; border: 1px solid transparent; background: none; color: var(--mute); cursor: pointer; }
+  .pin:hover { border-color: var(--line2); color: var(--fg); }
+  .pin svg { width: 14px; height: 14px; }
+  .pin.on { color: var(--brand); }
+
+  .verdict { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; line-height: 1.35; min-height: 42px; }
+  .verdict i { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: currentColor; }
+  .verdict span small { display: block; font-size: 12px; color: var(--mute); margin-top: 2px; }
+  .tone-good { color: var(--fg); } .tone-good i { background: var(--antigravity); }
+  .tone-spare { color: var(--brand); }
+  .tone-warn { color: var(--low); }
+  .tone-out { color: var(--out); }
+
+  .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+  .k { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); }
+  .n { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 10px; }
+  .n b { font-size: 46px; font-weight: 600; letter-spacing: -.045em; line-height: 1; color: var(--c); }
+  .n span { font-family: var(--mono); font-size: 13px; color: var(--mute); }
+  .n.out b { color: var(--out); }
+  .parts { display: flex; gap: 3px; margin-top: 6px; font-family: var(--mono); font-size: 11px; color: var(--mute2); }
+  .parts span { flex: 1; }
+  .when { font-family: var(--mono); font-size: 11.5px; color: var(--mute); margin-top: 8px; }
+  .when b { color: var(--fg); font-weight: 400; }
+  .na { font-size: 40px; color: var(--line2); }
+
+  .pace { display: grid; gap: 8px; }
+  .pace .top { display: flex; justify-content: space-between; align-items: baseline; }
+  .pace .top .r { font-size: 12px; color: var(--mute2); }
+  .pace svg { width: 100%; height: 118px; display: block; overflow: visible; }
+  .pace .legend { display: flex; gap: 16px; font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+  .pace .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; }
+  .pace .legend i.dash { background: repeating-linear-gradient(90deg, var(--mute) 0 3px, transparent 3px 6px); }
+  .extra { margin-top: auto; display: flex; gap: 22px; flex-wrap: wrap; font-size: 12px; color: var(--mute2); border-top: 1px solid var(--line); padding-top: 14px; }
+  .extra b { font-family: var(--mono); font-weight: 400; color: var(--fg); margin-left: 6px; }
+  .extra em { font-style: normal; font-family: var(--mono); color: var(--mute); margin-left: 6px; }
+
+  /* Everything not pinned, one line each. */
+  .others { display: flex; align-items: center; gap: 8px; padding: 10px 24px; border-top: 1px solid var(--line); }
+  .others .lbl { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-right: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; border: 1px solid var(--line); border-radius: 99px; font-size: 12.5px; }
+  .chip .v { font-family: var(--mono); font-size: 12px; color: var(--mute2); }
+  .chip .pin { width: 24px; height: 24px; margin-left: 2px; }
+  .chip.out .v { color: var(--out); }
+
+  .usage { display: grid; grid-template-columns: auto 1fr auto; gap: 36px; align-items: center; padding: 12px 24px; border-top: 1px solid var(--line); height: 104px; }
+  .usage .stats { display: flex; gap: 28px; }
+  .usage .stats div { border: 0; padding: 0; }
+  .usage .stats b { font-size: 20px; }
+  .usage .top3 { display: grid; grid-template-columns: auto auto; gap: 3px 16px; font-family: var(--mono); font-size: 11.5px; color: var(--mute2); }
+  .usage .top3 span:nth-child(2n) { text-align: right; color: var(--fg); }
+  .usage .top3 .m { display: flex; gap: 6px; align-items: center; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="pinned" id="pinned"></section>
+<section class="others" id="others"></section>
+<section class="usage">
+  <div class="stats" id="stats"></div>
+  <svg class="spark" id="spark" height="80"></svg>
+  <div class="top3" id="top3"></div>
+</section>
+<div class="stamp"><span><b>◆ lastcall</b> quota snapshot</span><span id="stamp"></span></div>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script src="lab-ui.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('home.html', { tabs: [] });
+  const $ = id => document.getElementById(id);
+  const HOUR = 3600e3, DAY = 24 * HOUR;
+  const PIN_ICON = on => `<svg viewBox="0 0 16 16" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4"><path d="M10.5 1.5l4 4-2 1-2.5 2.5.5 3-1.5 1.5-3-3-3.5 3.5-.5-.5L5.5 10l-3-3L4 5.5l3 .5L9.5 3.5z"/></svg>`;
+
+  // Pins: ?pin=claude,codex makes screenshots deterministic; otherwise the browser remembers.
+  const KEY = 'lastcall.pins';
+  const fromUrl = new URLSearchParams(location.search).get('pin');
+  let pins = fromUrl ? fromUrl.split(',') : JSON.parse(localStorage.getItem(KEY) ?? '["claude","codex","opencode"]');
+  const togglePin = id => {
+    pins = pins.includes(id) ? pins.filter(p => p !== id) : [...pins, id];
+    if (!fromUrl) localStorage.setItem(KEY, JSON.stringify(pins));
+    draw();
+  };
+  document.addEventListener('click', e => { const b = e.target.closest('[data-pin]'); if (b) togglePin(b.dataset.pin); });
+
+  const windowLength = l => l.kind === '5h' ? 5 * HOUR : l.kind === 'week' ? 7 * DAY : l.name === 'Monthly' ? 30 * DAY : null;
+
+  // Projects each account's spend to its reset at the current rate.
+  // Returns the share of the pool that would go unused, or when the first account runs dry.
+  function pace(l, now) {
+    const len = windowLength(l);
+    if (!len) return null;
+    let unused = 0, early = null, tooSoon = false;
+    for (const p of l.parts) {
+      if (!p.resetAt) { unused += p.left; continue; }
+      const remain = p.resetAt - now, elapsed = len - remain;
+      if (elapsed < len * 0.1) { tooSoon = true; continue; }
+      const rate = (1 - p.left) / elapsed;
+      const runsOutIn = rate > 0 ? p.left / rate : Infinity;
+      if (runsOutIn < remain) {
+        const gap = remain - runsOutIn;
+        if (!early || gap > early.gap) early = { name: p.name, gap };
+      } else unused += 1 - ((1 - p.left) + rate * remain);
+    }
+    return { unused: unused / l.capacity, early, tooSoon };
+  }
+
+  // One sentence per pool, worst news first.
+  function verdict(pool, now) {
+    const h5 = pool.limits.find(l => l.kind === '5h');
+    const wk = pool.limits.find(l => l.kind === 'week');
+    const head = h5 ?? wk;
+    if (head && head.left / head.capacity <= 0.02) return { tone: 'out', text: `Out for now`, sub: `back in ${fmt.in(head.nextReset - now)}` };
+    if (wk && wk.left / wk.capacity <= 0.02) return { tone: 'out', text: 'Weekly allowance used up', sub: `resets in ${fmt.in(wk.nextReset - now)}` };
+    const pw = wk && pace(wk, now);
+    if (pw?.early) return { tone: 'warn', text: `Weekly runs out ~${fmt.in(pw.early.gap)} before reset`, sub: `at today's pace${pool.accounts > 1 ? ` · account ${pw.early.name} first` : ''}` };
+    if (h5 && h5.left / h5.capacity < 0.25) return { tone: 'warn', text: '5-hour window nearly spent', sub: `refills in ${fmt.in(h5.nextReset - now)}` };
+    if (pw && !pw.tooSoon && pw.unused > 0.25) return { tone: 'spare', text: `Room to spare: ~${fmt.pct(pw.unused)} of this week would go unused`, sub: 'lean on this one' };
+    return { tone: 'good', text: 'On track', sub: pw?.tooSoon ? 'week just started, pace not settled' : 'spending about as fast as it refills' };
+  }
+
+  // Use so far across each account's weekly window, then a dashed line at today's pace to the reset.
+  // Where the dashed line ends below the top line is allowance that would expire unused.
+  function paceChart(l, now) {
+    const len = windowLength(l), W = 400, H = 118, pad = 6;
+    const X = f => f * W, Y = u => pad + (1 - u) * (H - pad * 2);
+    const pc = pace(l, now);
+    let g = `<line x1="0" x2="${W}" y1="${Y(1)}" y2="${Y(1)}" stroke="#36312d"/>
+      <line x1="0" x2="${W}" y1="${Y(0)}" y2="${Y(0)}" stroke="#1c1a18"/>
+      <text x="${W}" y="${Y(1) - 4}" text-anchor="end" fill="#77716c" font-size="10" font-family="DM Mono">full allowance</text>`;
+    for (const pt of l.parts) {
+      if (!pt.resetAt) continue;
+      const f = Math.min(1, Math.max(0, 1 - (pt.resetAt - now) / len)), used = 1 - pt.left;
+      g += `<line x1="${X(f)}" x2="${X(f)}" y1="${Y(0)}" y2="${Y(1)}" stroke="#1c1a18" stroke-dasharray="1 3"/>`;
+      g += `<path d="M0,${Y(0)} L${X(f)},${Y(used)}" stroke="${pt.shade}" stroke-width="2" fill="none"/>`;
+      if (f >= 0.1 && used > 0) {
+        const dryAt = f / used;
+        const [ex, ey] = dryAt < 1 ? [dryAt, 1] : [1, used / f];
+        g += `<path d="M${X(f)},${Y(used)} L${X(ex)},${Y(ey)}${dryAt < 1 ? ` L${W},${Y(1)}` : ''}" stroke="${pt.shade}" stroke-width="1.5" stroke-dasharray="4 4" fill="none" opacity=".75"/>`;
+        if (dryAt >= 1) g += `<line x1="${W - 1}" x2="${W - 1}" y1="${Y(1)}" y2="${Y(ey)}" stroke="#c5ac98" stroke-width="3" opacity=".55"/>`;
+        else g += `<circle cx="${X(dryAt)}" cy="${Y(1)}" r="3.5" fill="#ecd36e"/>`;
+      }
+      g += `<circle cx="${X(f)}" cy="${Y(used)}" r="3" fill="${pt.shade}"/>`;
+    }
+    const right = pc.tooSoon && !pc.early ? 'too early to call' : pc.early ? `dry ~${fmt.in(pc.early.gap)} early` : `~${fmt.pct(pc.unused)} would go unused`;
+    return `<div class="pace"><div class="top"><span class="k">This week</span><span class="r">${right}</span></div>
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg>
+      <div class="legend"><span><i style="background:var(--mute2)"></i>used so far</span><span><i class="dash"></i>at today's pace</span><span>reset →</span></div></div>`;
+  }
+
+  const big = (l, p, now, label) => {
+    if (!l) return `<div><div class="k">${label}</div><div class="na">—</div></div>`;
+    const out = l.left / l.capacity <= 0.02;
+    return `<div><div class="k">${label}</div>
+      <div class="n ${out ? 'out' : ''}"><b>${l.cap ? fmt.usd(Math.round(l.left * l.cap / l.capacity * 100) / 100) : `${Math.round(l.left * 100)}%`}</b><span>/ ${l.cap ? fmt.usd(l.cap) : `${l.capacity * 100}%`}</span></div>
+      ${ui.seg(l.parts, 8)}
+      <div class="parts">${l.parts.length > 1 ? l.parts.map(pt => `<span>${pt.name} ${fmt.pct(pt.left)}</span>`).join('') : '<span>1 account</span>'}</div>
+      <div class="when">${l.nextReset ? `resets in <b>${fmt.in(l.nextReset - now)}</b>` : 'idle, starts on next use'}</div></div>`;
+  };
+
+  let snap = null;
+  function draw() {
+    if (!snap) return;
+    const s = snap, now = Date.now();
+    const shown = s.pools.filter(p => pins.includes(p.provider));
+    const rest = s.pools.filter(p => !pins.includes(p.provider));
+
+    $('pinned').style.setProperty('--n', Math.max(1, shown.length));
+    $('pinned').innerHTML = shown.map(pool => {
+      const p = s.providers[pool.provider];
+      const accts = s.creds.filter(c => c.provider === pool.provider);
+      const h5 = pool.limits.find(l => l.kind === '5h' && !l.name.includes('·')) ?? pool.limits.find(l => l.kind === '5h');
+      const wk = pool.limits.find(l => l.kind === 'week');
+      const extra = pool.limits.filter(l => l !== h5 && l !== wk);
+      const v = verdict(pool, now);
+      return `<div class="card" style="--c:${p.color}">
+        <div class="who">${logo(p.logo, p.color, 20)}${p.name}<small>${accts.length > 1 ? `${accts.length} × ${accts[0].plan}` : accts[0].plan}</small>
+          <button class="pin on" data-pin="${pool.provider}" title="Unpin">${PIN_ICON(true)}</button></div>
+        <div class="verdict tone-${v.tone}"><i></i><span>${v.text}<small>${v.sub}</small></span></div>
+        <div class="nums">${big(h5, p, now, '5-hour')}${big(wk, p, now, 'Weekly')}</div>
+        ${wk ? paceChart(wk, now) : ''}
+        ${extra.length ? `<div class="extra">${extra.map(l => `<span>${l.name}<b>${ui.amount(l)}</b><em>${ui.reset(l.nextReset, now)}</em></span>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('') || `<div class="card" style="--c:var(--line2)"><div class="verdict"><span>Nothing pinned<small>Pin a provider from the strip below.</small></span></div></div>`;
+
+    $('others').innerHTML = `<span class="lbl">Also tracked</span>` + rest.map(pool => {
+      const p = s.providers[pool.provider];
+      const head = pool.limits.find(l => l.kind === '5h') ?? pool.limits[0];
+      const out = head.left / head.capacity <= 0.02;
+      return `<span class="chip ${out ? 'out' : ''}">${logo(p.logo, p.color)}${p.name}
+        <span class="v">${out ? `out · back ${fmt.in(head.nextReset - now)}` : `${fmt.pct(head.left / head.capacity)} ${head.kind === '5h' ? '5h' : 'wk'} · ${ui.reset(head.nextReset, now)}`}</span>
+        <button class="pin" data-pin="${pool.provider}" title="Pin">${PIN_ICON(false)}</button></span>`;
+    }).join('');
+
+    $('stats').innerHTML = ui.stats(s);
+    ui.spark($('spark'), s, { height: 80, right: 84, only: pins });
+    $('top3').innerHTML = s.usage.models.slice(0, 3).map(m => `<span class="m">${logo(s.providers[m.provider].logo, s.providers[m.provider].color, 11)}${m.model}</span><span>${fmt.tokens(m.tokens)}</span>`).join('');
+    $('stamp').textContent = ui.stamp(s) + (fromUrl ? ` · pins from URL` : '');
+  }
+
+  lc.mount(s => { snap = s; draw(); });
+</script>
+</body>
+</html>

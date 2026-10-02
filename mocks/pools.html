@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Pools</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px auto 1fr; overflow: hidden; }
+  .pools { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
+  .pool { padding: 18px 22px 20px; border-right: 1px solid var(--line); position: relative; overflow: hidden; }
+  .pool:last-child { border-right: 0; }
+  .pool::before { content: ""; position: absolute; inset: 0 auto auto 0; width: 100%; height: 2px; background: var(--c); opacity: .8; }
+  .pool .who { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .pool .who small { margin-left: auto; font-weight: 400; color: var(--mute); font-size: 11.5px; }
+  .big { display: flex; align-items: baseline; gap: 6px; margin: 12px 0 2px; }
+  .big b { font-size: 46px; font-weight: 600; letter-spacing: -.045em; line-height: 1; color: var(--c); }
+  .big span { font-size: 15px; color: var(--mute); font-family: var(--mono); }
+  .cap { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--mute2); margin-bottom: 8px; }
+  .lines { margin-top: 14px; display: grid; gap: 9px; }
+  .line { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-size: 12px; }
+  .line .n { color: var(--mute2); }
+  .line .v { font-family: var(--mono); font-size: 11.5px; }
+  .line .v em { font-style: normal; color: var(--mute); margin-left: 8px; }
+  .line .seg { grid-column: 1 / -1; }
+  .line .seg > span { height: 4px; }
+
+  .lower { display: grid; grid-template-columns: 1.45fr 1fr; min-height: 0; }
+  .accts { padding: 20px 24px; border-right: 1px solid var(--line); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; font-size: 11px; color: var(--mute); padding: 0 10px 8px 0; border-bottom: 1px solid var(--line); }
+  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.acct { white-space: nowrap; }
+  td.acct div { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  td.acct small { display: block; color: var(--mute); font-weight: 400; font-size: 11px; margin-left: 22px; }
+  .cell { min-width: 120px; }
+  .cell .t { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11.5px; margin-bottom: 4px; }
+  .cell .t em { font-style: normal; color: var(--mute); }
+  .cell .track { height: 3px; background: var(--line); border-radius: 1px; }
+  .cell .track i { display: block; height: 100%; border-radius: 1px; }
+  .cell .lbl { font-size: 10.5px; color: var(--mute); margin-top: 3px; }
+
+  .usage { padding: 20px 24px; display: grid; grid-template-rows: auto auto 1fr; gap: 16px; min-height: 0; overflow: hidden; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .stats div { border-left: 1px solid var(--line); padding: 0 14px; }
+  .stats div:first-child { border-left: 0; padding-left: 0; }
+  .stats b { display: block; font-size: 24px; font-weight: 600; letter-spacing: -.03em; }
+  .stats span { font-size: 11.5px; color: var(--mute); }
+  svg.spark { width: 100%; height: 130px; display: block; overflow: visible; }
+  svg.spark text { font-family: "DM Sans"; font-size: 11px; font-weight: 600; }
+  .models { display: grid; grid-template-columns: 150px 1fr 48px; gap: 6px 12px; align-items: center; font-size: 12px; align-content: start; overflow: hidden; }
+  .models .m { font-family: var(--mono); font-size: 11.5px; color: var(--mute2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .models .b { height: 8px; border-radius: 1px; }
+  .models .v { text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--mute2); }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="pools" id="pools"></section>
+<section class="lower">
+  <div class="accts"><div class="h">Accounts <small>every limit, per credential</small><span class="r" id="when"></span></div><table id="accts"></table></div>
+  <div class="usage">
+    <div><div class="h">Ongoing usage <small>today via CLIProxyAPI</small></div><div class="stats" id="stats"></div></div>
+    <div><div class="h">Requests per minute <small>last 60 min</small></div><svg class="spark" id="spark"></svg></div>
+    <div><div class="h">Tokens by model <small>today</small></div><div class="models" id="models"></div></div>
+  </div>
+</section>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('pools.html');
+  const $ = id => document.getElementById(id);
+  const seg = parts => `<div class="seg">${parts.map(p => `<span><i style="width:${p.left * 100}%;background:${p.shade}"></i></span>`).join('')}</div>`;
+
+  function pools(s, now) {
+    $('pools').innerHTML = s.pools.map(pool => {
+      const p = s.providers[pool.provider];
+      const head = pool.limits.find(l => l.kind === '5h') ?? pool.limits[0];
+      const rest = pool.limits.filter(l => l !== head);
+      const plans = s.creds.filter(c => c.provider === pool.provider);
+      return `<div class="pool" style="--c:${p.color}">
+        <div class="who">${logo(p.logo, p.color, 16)}${p.name}<small>${plans.length > 1 ? `${plans.length} × ${plans[0].plan}` : plans[0].plan}</small></div>
+        <div class="big"><b class="${state(head.left / head.capacity) === 'out' ? 'out' : ''}">${Math.round(head.left * 100)}%</b><span>/ ${head.capacity * 100}%</span></div>
+        <div class="cap"><span>${head.name}</span><span class="mono">${head.nextReset ? `resets ${fmt.in(head.nextReset - now)}` : 'no active window'}</span></div>
+        ${seg(head.parts)}
+        <div class="lines">${rest.map(l => `<div class="line"><span class="n">${l.name}</span>
+          <span class="v ${state(l.left / l.capacity)}">${Math.round(l.left * 100)}/${l.capacity * 100}%<em>${fmt.in(l.nextReset ? l.nextReset - now : null)}</em></span>${seg(l.parts)}</div>`).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function accounts(s, now) {
+    const cols = ['5h', 'week', 'extra'];
+    $('when').textContent = fmt.clock(s.fetchedAt);
+    $('accts').innerHTML = `<tr><th>Account</th><th>5-hour</th><th>Weekly</th><th>Other</th></tr>` + s.creds.map((c, i) => {
+      const p = s.providers[c.provider];
+      const idx = s.creds.filter(x => x.provider === c.provider).indexOf(c);
+      const shade = p.shades[idx] ?? p.color;
+      const cell = kind => {
+        const ls = c.limits.filter(l => l.kind === kind);
+        return `<td>${ls.map(l => `<div class="cell"><div class="t"><span class="${state(l.left)}">${fmt.pct(l.left)}</span><em>${fmt.in(l.resetAt ? l.resetAt - now : null)}</em></div>
+          <div class="track"><i style="width:${l.left * 100}%;background:${shade}"></i></div>${ls.length > 1 || kind === 'extra' ? `<div class="lbl">${l.name.replace('5-hour · ', '')}</div>` : ''}</div>`).join('<div style="height:6px"></div>')}</td>`;
+      };
+      return `<tr><td class="acct"><div>${logo(p.logo, shade)}${p.name} · ${c.name}</div><small>${c.plan}${c.meta.length ? ' · ' + c.meta.map(([k, v]) => `${k} ${v}`).join(' · ') : ''}</small></td>${cols.map(cell).join('')}</tr>`;
+    }).join('');
+  }
+
+  function usage(s) {
+    const u = s.usage;
+    $('stats').innerHTML = `<div><b class="num">${fmt.num(u.requests)}</b><span>requests</span></div>
+      <div><b class="num">${fmt.tokens(u.tokens)}</b><span>tokens</span></div>
+      <div><b class="num">${(u.successRate * 100).toFixed(1)}%</b><span>success · ${u.failed} failed</span></div>`;
+
+    const svg = $('spark'), W = svg.clientWidth || 500, H = 130, R = 96;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const max = Math.max(4, ...Object.values(u.perMin).flat());
+    let g = [0, .5, 1].map(f => `<line x1="0" x2="${W - R}" y1="${(H - 8) * (1 - f) + 4}" y2="${(H - 8) * (1 - f) + 4}" stroke="#36312d" stroke-dasharray="1 3"/>`).join('');
+    const ends = [];
+    for (const [k, xs] of Object.entries(u.perMin)) {
+      const p = s.providers[k];
+      const pts = xs.map((v, i) => [(i / (xs.length - 1)) * (W - R), (H - 8) * (1 - v / max) + 4]);
+      g += `<polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${p.color}" stroke-width="1.4" stroke-opacity="${k === 'xai' ? .4 : .9}"/>`;
+      ends.push({ p, y: pts.at(-1)[1], n: u.lastHour[k] });
+    }
+    ends.sort((a, b) => a.y - b.y);
+    let last = -Infinity;
+    for (const e of ends) {
+      const y = Math.max(e.y, last + 15); last = y;
+      g += `<line x1="${W - R}" x2="${W - R + 10}" y1="${e.y}" y2="${y}" stroke="#36312d"/>
+        <svg x="${W - R + 13}" y="${y - 6}" width="12" height="12" viewBox="0 0 24 24" fill="${e.p.color}">${LOGOS[e.p.logo]}</svg>
+        <text x="${W - R + 30}" y="${y + 4}" fill="${e.p.color}">${e.n}<tspan fill="#77716c" font-weight="400"> /h</tspan></text>`;
+    }
+    svg.innerHTML = g;
+
+    const top = u.models.slice(0, 6), mx = top[0].tokens;
+    $('models').innerHTML = top.map(m => {
+      const p = s.providers[m.provider];
+      return `<span class="m">${m.model}</span><span class="b" style="width:${(m.tokens / mx) * 100}%;background:${p.color}"></span><span class="v">${fmt.tokens(m.tokens)}</span>`;
+    }).join('');
+  }
+
+  lc.mount((s, now) => { pools(s, now); accounts(s, now); usage(s); });
+</script>
+</body>
+</html>

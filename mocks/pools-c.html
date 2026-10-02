@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Pools C · Grid</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px auto 1fr 30px; overflow: hidden; }
+  .pools { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
+  .pool { padding: 14px 20px 16px; border-right: 1px solid var(--line); }
+  .pool:last-child { border-right: 0; }
+  .who { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .who small { margin-left: auto; color: var(--mute); font-weight: 400; font-size: 11px; font-family: var(--mono); }
+  .big { display: flex; align-items: baseline; gap: 6px; margin: 8px 0 8px; }
+  .big b { font-size: 36px; font-weight: 600; letter-spacing: -.045em; line-height: 1; }
+  .big span { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+  .big i { margin-left: auto; font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--mute2); }
+
+  .lower { display: grid; grid-template-columns: 1fr 400px; min-height: 0; }
+  .gridwrap { padding: 16px 24px; border-right: 1px solid var(--line); overflow: hidden; }
+  .heat { display: grid; grid-template-columns: 190px repeat(3, 1fr) 76px; gap: 4px; }
+  .heat .hd { font-size: 11px; color: var(--mute); padding: 0 2px 4px; }
+  .heat .who2 { display: flex; flex-direction: column; justify-content: center; padding-right: 8px; }
+  .heat .who2 div { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+  .heat .who2 small { color: var(--mute); font-size: 11px; margin-left: 22px; }
+  .tile { position: relative; border-radius: 3px; padding: 7px 10px; min-height: 52px; background: #0d0b0a; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; }
+  .tile .fill { position: absolute; inset: 0; transform-origin: left; opacity: .2; transition: transform .6s ease; }
+  .tile .top { position: relative; display: flex; justify-content: space-between; align-items: baseline; }
+  .tile .top b { font-family: var(--mono); font-size: 15px; font-weight: 500; }
+  .tile .top em { font-style: normal; font-family: var(--mono); font-size: 11px; color: var(--mute2); }
+  .tile .nm { position: relative; font-size: 10.5px; color: var(--mute2); }
+  .tile.empty { background: transparent; border: 1px dashed var(--line); }
+  .tile + .tile { margin-top: 4px; }
+  .cellwrap { display: flex; flex-direction: column; }
+  .nx { display: flex; flex-direction: column; justify-content: center; align-items: flex-end; font-family: var(--mono); font-size: 11.5px; color: var(--fg); }
+  .nx small { color: var(--mute); font-size: 10.5px; font-family: "DM Sans"; }
+
+  .usage { padding: 16px 24px; display: grid; grid-template-rows: auto auto 1fr; gap: 14px; min-height: 0; overflow: hidden; }
+  .usage .models { grid-template-columns: 150px 1fr 44px; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="pools" id="pools"></section>
+<section class="lower">
+  <div class="gridwrap"><div class="h">Every limit <small>tile fill is what's left · tightest stands out</small></div><div class="heat" id="heat"></div></div>
+  <div class="usage">
+    <div><div class="h">Ongoing usage <small>today</small></div><div class="stats" id="stats"></div></div>
+    <div><div class="h">Requests per minute <small>last 60 min</small></div><svg class="spark" id="spark" height="118"></svg></div>
+    <div><div class="h">Tokens by model <small>today</small></div><div class="models" id="models"></div></div>
+  </div>
+</section>
+<div class="stamp"><span><b>◆ lastcall</b> quota snapshot</span><span id="stamp"></span></div>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script src="lab-ui.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('pools-c.html');
+  const $ = id => document.getElementById(id);
+
+  function pools(s, now) {
+    $('pools').innerHTML = s.pools.map(pool => {
+      const p = s.providers[pool.provider];
+      const head = pool.limits.find(l => l.kind === '5h') ?? pool.limits[0];
+      const out = state(head.left / head.capacity) === 'out';
+      return `<div class="pool"><div class="who">${logo(p.logo, p.color, 15)}${p.name}<small>${head.name.replace('5-hour · ', '5h ').replace('5-hour', '5h')}</small></div>
+        <div class="big"><b style="color:${out ? '#ff8b45' : p.color}">${Math.round(head.left * 100)}%</b><span>/ ${head.capacity * 100}%</span><i>${head.nextReset ? `↻ ${fmt.in(head.nextReset - now)}` : 'idle'}</i></div>
+        ${ui.seg(head.parts, 6)}</div>`;
+    }).join('');
+  }
+
+  function heat(s, now) {
+    let h = `<div></div><div class="hd">5-hour</div><div class="hd">Weekly</div><div class="hd">Other</div><div class="hd" style="text-align:right">Next reset</div>`;
+    for (const c of s.creds) {
+      const p = s.providers[c.provider], shade = ui.shadeOf(s, c);
+      h += `<div class="who2"><div>${logo(p.logo, shade)}${p.name} · ${c.name}</div><small>${c.plan}${c.meta.length ? ' · ' + c.meta.map(([k, v]) => `${k} ${v}`).join(' · ') : ''}</small></div>`;
+      for (const kind of ['5h', 'week', 'extra']) {
+        const ls = c.limits.filter(l => l.kind === kind);
+        h += `<div class="cellwrap">${ls.length ? ls.map(l => {
+          const st = state(l.left);
+          const named = ls.length > 1 || kind === 'extra';
+          return `<div class="tile" style="${st === 'out' ? 'box-shadow: inset 0 0 0 1px #ff8b4566' : ''}">
+            <div class="fill" style="background:${shade};transform:scaleX(${l.left})"></div>
+            <div class="top"><b class="${st}">${l.cap ? fmt.usd(+(l.left * l.cap).toFixed(2)) : fmt.pct(l.left)}</b><em>${ui.reset(l.resetAt, now)}</em></div>
+            ${named ? `<div class="nm">${l.name.replace('5-hour · ', '')}</div>` : ''}</div>`;
+        }).join('') : '<div class="tile empty"></div>'}</div>`;
+      }
+      const next = c.limits.map(l => l.resetAt).filter(Boolean).sort((a, b) => a - b)[0];
+      h += `<div class="nx">${ui.reset(next, now)}<small>${next ? c.limits.find(l => l.resetAt === next).name.replace('5-hour · ', '5h ') : ''}</small></div>`;
+    }
+    $('heat').innerHTML = h;
+  }
+
+  lc.mount((s, now) => {
+    pools(s, now); heat(s, now);
+    $('stats').innerHTML = ui.stats(s);
+    ui.spark($('spark'), s, { height: 118 });
+    $('models').innerHTML = ui.models(s, 5);
+    $('stamp').textContent = ui.stamp(s);
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · mocks</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  main { max-width: 1100px; margin: 0 auto; padding: 56px 28px 72px; }
+  h1 { font-size: 44px; letter-spacing: -.04em; font-weight: 600; margin: 0; line-height: 1.05; }
+  h1 span { color: var(--brand); font-weight: 400; }
+  .lede { color: var(--mute2); font-size: 15px; max-width: 58ch; margin: 14px 0 40px; }
+  .labs { display: flex; gap: 22px; margin-bottom: 44px; flex-wrap: wrap; }
+  .labs span { display: inline-flex; gap: 8px; align-items: center; font-weight: 500; }
+  .labs small { color: var(--mute); font-weight: 400; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  a.tile { background: var(--bg); padding: 26px 24px 28px; text-decoration: none; display: flex; flex-direction: column; gap: 10px; transition: background .2s; }
+  a.tile:hover { background: var(--panel); }
+  a.tile .n { font-family: var(--mono); color: var(--mute); font-size: 12px; }
+  a.tile .t { font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
+  a.tile p { color: var(--mute2); margin: 0; }
+  a.tile .go { margin-top: auto; padding-top: 18px; color: var(--brand); font-size: 12px; }
+  .glyph { height: 70px; margin: 6px 0 4px; }
+  ul { color: var(--mute2); margin: 40px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 40px; }
+  li::before { content: "◆"; color: var(--brand); margin-right: 10px; font-size: 10px; }
+  @media (max-width: 860px) { .tiles, ul { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<main>
+  <h1>last<span>call</span></h1>
+  <p class="lede">Your subscriptions reset every week whether you used them or not. lastcall watches each account's allowance and points CLIProxyAPI at whichever one expires first.</p>
+  <div class="labs" id="labs"></div>
+  <div class="tiles">
+    <a class="tile" href="burn.html"><span class="n">01</span><span class="t">Burn map</span>
+      <svg class="glyph" viewBox="0 0 200 70"><rect x="0" y="0" width="70" height="40" fill="#cc785c" opacity=".18"/><g stroke="#36312d" stroke-dasharray="1 3"><line x1="0" x2="200" y1="20" y2="20"/><line x1="0" x2="200" y1="45" y2="45"/></g><polyline points="70,22 60,26 50,30" stroke="#f1f3f5" fill="none" opacity=".5"/><circle cx="50" cy="30" r="4" fill="#f1f3f5"/><circle cx="34" cy="22" r="4" fill="#df9477"/><circle cx="150" cy="12" r="4" fill="#f0b99f"/><circle cx="110" cy="40" r="4" fill="#c5cbd3"/></svg>
+      <p>Allowance left against time to reset, one dot per account, slopalytics-style. Top-left means spend it now.</p><span class="go">Open →</span></a>
+    <a class="tile" href="console.html"><span class="n">02</span><span class="t">Console</span>
+      <svg class="glyph" viewBox="0 0 200 70" font-family="DM Mono" font-size="9"><text x="0" y="12" fill="#77716c">21:41:07</text><text x="48" y="12" fill="#aaa39d">claude-code →</text><text x="122" y="12" fill="#df9477">Max · A</text><text x="0" y="28" fill="#77716c">21:41:08</text><text x="48" y="28" fill="#aaa39d">codex-cli →</text><text x="122" y="28" fill="#f1f3f5">Pro · A</text><rect x="0" y="38" width="2" height="24" fill="#c5ac98"/><text x="8" y="49" fill="#c5ac98">◆ lastcall</text><text x="8" y="60" fill="#fff">Codex → Plus · B, 5h full</text></svg>
+      <p>An agent log. Every request streams by with client, account, model and tokens; lastcall explains each routing change.</p><span class="go">Open →</span></a>
+    <a class="tile" href="flow.html"><span class="n">03</span><span class="t">Flow</span>
+      <svg class="glyph" viewBox="0 0 200 70"><g fill="none" stroke="#36312d"><path d="M20,15 C60,15 60,35 85,35"/><path d="M20,55 C60,55 60,35 85,35"/><path d="M115,35 C145,35 145,15 175,15"/><path d="M115,35 C145,35 145,55 175,55" stroke="#f1f3f5"/></g><rect x="85" y="25" width="30" height="20" rx="5" fill="#0d0b0a" stroke="#36312d"/><circle cx="175" cy="15" r="8" fill="none" stroke="#df9477" stroke-width="2" stroke-dasharray="35 50"/><circle cx="175" cy="55" r="8" fill="none" stroke="#f1f3f5" stroke-width="2" stroke-dasharray="20 50"/><circle cx="148" cy="47" r="3" fill="#f1f3f5"/><circle cx="55" cy="22" r="3" fill="#df9477"/></svg>
+      <p>A live map: agents on the left, the proxy in the middle, accounts on the right. Each request flies down the wire it took.</p><span class="go">Open →</span></a>
+  </div>
+  <ul>
+    <li>Loads on open and streams live, no click needed</li>
+    <li>Refresh in the top bar forces a fetch right now</li>
+    <li>Skips full 5h windows and spent weeks</li>
+    <li>Earliest weekly reset gets the traffic</li>
+  </ul>
+</main>
+<footer class="foot"><span>Mock data. Nothing here talks to the real proxy.</span><span>lastcall × CLIProxyAPI</span></footer>
+<script src="logos.js"></script>
+<script src="data.js"></script>
+<script>
+  const { logo, LABS } = lastcall;
+  lastcall.chrome('', { live: false });
+  const subs = { anthropic: 'Max 20× · Max 5×', openai: 'Pro · Plus ×3', google: 'not managed', xai: 'not managed' };
+  document.getElementById('labs').innerHTML = Object.entries(LABS).map(([k, l]) =>
+    `<span style="color:${l.color}">${logo(l.logo)}${l.product} <small>${subs[k]}</small></span>`).join('');
+</script>
+</body>
+</html>

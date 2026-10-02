@@ -1,0 +1,8 @@
+# Runtime state and secrets live outside the repo; guard against strays.
+sandbox/
+*.db
+*.db-*
+state*.json
+*.key
+.env
+bin/

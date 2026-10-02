@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · quota mocks</title>
+<link rel="stylesheet" href="quota.css">
+<style>
+  main { max-width: 760px; padding-top: 32px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  p.lede { color: var(--mute); margin: 0 0 28px; }
+  a.card { display: block; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 12px; text-decoration: none; color: inherit; }
+  a.card:hover { border-color: var(--ok); }
+  a.card b { font-size: 15px; }
+  a.card p { margin: 4px 0 0; color: var(--mute); }
+  .old { margin-top: 28px; font-size: 13px; color: var(--mute); }
+  .old a { color: var(--mute); }
+</style>
+</head>
+<body>
+<nav class="mocks"><a href="index.html" aria-current="page">All mocks</a><a href="cards.html">1 · Cards</a><a href="rows.html">2 · Rows</a><a href="term.html">3 · Terminal</a></nav>
+<main>
+  <h1>Quota mocks</h1>
+  <p class="lede">Same data as CPAMC's Quota Management page, minus the sidebar, buttons and file names. Every page fetches on open, re-polls every 5 seconds, and has Refresh for right now.</p>
+  <a class="card" href="cards.html"><b>1 · Cards</b><p>The CPAMC quota grid, cleaned up. One card per credential with every limit as a bar.</p></a>
+  <a class="card" href="rows.html"><b>2 · Rows</b><p>One line per credential, limits side by side, plus when the next reset lands. Fastest to scan.</p></a>
+  <a class="card" href="term.html"><b>3 · Terminal</b><p>What a <span class="mono">lastcall quota</span> command would print: block bars, grouped by provider.</p></a>
+  <p class="old">Earlier agentic set: <a href="archive-agentic/index.html">archive-agentic/</a></p>
+</main>
+</body>
+</html>

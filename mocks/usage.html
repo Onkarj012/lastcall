@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Usage</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px auto 1fr auto 30px; overflow: hidden; }
+  .bar .ext { color: var(--mute2); text-decoration: none; font-size: 12px; border: 1px solid var(--line2); border-radius: 99px; padding: 4px 11px; }
+  .bar .ext:hover { color: var(--fg); border-color: var(--mute); }
+
+  .pin { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; border: 0; background: none; color: var(--line2); cursor: pointer; margin-left: auto; }
+  .pin:hover { color: var(--fg); }
+  .pin.on { color: var(--brand); }
+  .pin svg { width: 13px; height: 13px; }
+
+  /* Top: one combined card per pinned provider. */
+  .totals { display: grid; grid-template-columns: repeat(var(--n), 1fr); border-bottom: 1px solid var(--line); }
+  .total { position: relative; padding: 18px 24px 20px; border-right: 1px solid var(--line); background: linear-gradient(180deg, color-mix(in srgb, var(--c) 7%, transparent), transparent 60%); }
+  .total:last-child { border-right: 0; }
+  .total::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; background: var(--c); }
+  .who { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; }
+  .who small { color: var(--mute); font-weight: 400; font-size: 12px; }
+  .row2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 28px; margin-top: 14px; align-items: end; }
+  .k { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--mute); margin-bottom: 4px; }
+  .n { display: flex; align-items: baseline; gap: 6px; margin-bottom: 9px; }
+  .n b { font-size: 44px; font-weight: 600; letter-spacing: -.045em; line-height: 1; color: var(--c); }
+  .n.sm b { font-size: 26px; }
+  .n span { font-family: var(--mono); font-size: 12.5px; color: var(--mute); }
+  .n.out b { color: var(--out); }
+  .when { font-family: var(--mono); font-size: 11px; color: var(--mute); margin-top: 7px; }
+  .when b { color: var(--mute2); font-weight: 400; }
+
+  /* Bottom: every subscription, pinned ones first. */
+  .subs { padding: 18px 24px; overflow: hidden; min-height: 0; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .sub { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--panel); display: grid; gap: 11px; }
+  .sub.dim { background: transparent; opacity: .62; }
+  .sub .who { font-size: 13.5px; }
+  .sub .who small { font-size: 11.5px; }
+  .lim .t { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+  .lim .t span:first-child { color: var(--mute2); }
+  .lim .t .v { font-family: var(--mono); font-size: 11.5px; }
+  .lim .t .v em { font-style: normal; color: var(--mute); margin-left: 8px; }
+  .track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 2px; transition: width .6s ease; }
+  .meta { font-size: 11px; color: var(--mute); font-family: var(--mono); }
+
+  .usage { display: grid; grid-template-columns: auto 1fr; gap: 36px; align-items: center; padding: 10px 24px; border-top: 1px solid var(--line); height: 86px; }
+  .usage .stats { display: flex; gap: 28px; }
+  .usage .stats div { border: 0; padding: 0; }
+  .usage .stats b { font-size: 19px; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="totals" id="totals"></section>
+<section class="subs"><div class="h">Subscriptions <small>pinned first · pin a provider to give it a total up top</small></div><div class="grid" id="subs"></div></section>
+<section class="usage"><div class="stats" id="stats"></div><svg class="spark" id="spark" height="66"></svg></section>
+<div class="stamp"><span><b>◆ lastcall</b> usage snapshot</span><span id="stamp"></span></div>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script src="lab-ui.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('usage.html', { tabs: [] });
+  // Settings stay in CPAMC; lastcall only links there.
+  document.querySelector('.tabs .dim').textContent = 'Usage';
+  document.querySelector('.tabs').insertAdjacentHTML('afterend', '<a class="ext" href="http://127.0.0.1:8317/management.html" target="_blank">CLIProxyAPI settings ↗</a>');
+  const $ = id => document.getElementById(id);
+  const PIN = on => `<svg viewBox="0 0 16 16" fill="${on ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.4"><path d="M10.5 1.5l4 4-2 1-2.5 2.5.5 3-1.5 1.5-3-3-3.5 3.5-.5-.5L5.5 10l-3-3L4 5.5l3 .5L9.5 3.5z"/></svg>`;
+
+  // Pinned providers get a combined total up top and their subscriptions listed first.
+  // Mock keeps pins in the browser; ?pin= overrides for the snapshot skill.
+  const KEY = 'lastcall.pins.v2';
+  const fromUrl = new URLSearchParams(location.search).get('pin');
+  let pins = fromUrl ? fromUrl.split(',') : JSON.parse(localStorage.getItem(KEY) ?? '["claude","codex","opencode"]');
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-pin]');
+    if (!b) return;
+    const id = b.dataset.pin;
+    pins = pins.includes(id) ? pins.filter(p => p !== id) : [...pins, id];
+    if (!fromUrl) localStorage.setItem(KEY, JSON.stringify(pins));
+    draw();
+  });
+
+  const pctOrUsd = (l, of = l.capacity ?? 1) => l.cap
+    ? { v: fmt.usd(Math.round(l.left * l.cap / of * 100) / 100), of: fmt.usd(l.cap) }
+    : { v: `${Math.round(l.left * 100)}%`, of: `${of * 100}%` };
+
+  function totals(s, now) {
+    const shown = s.pools.filter(p => pins.includes(p.provider));
+    $('totals').style.setProperty('--n', Math.max(1, shown.length));
+    $('totals').innerHTML = shown.map(pool => {
+      const p = s.providers[pool.provider];
+      const accts = s.creds.filter(c => c.provider === pool.provider);
+      const h5 = pool.limits.find(l => l.kind === '5h' && !l.name.includes('·')) ?? pool.limits.find(l => l.kind === '5h');
+      const wk = pool.limits.find(l => l.kind === 'week');
+      const main = h5 ?? wk, side = h5 ? wk : null;
+      const big = (l, cls) => { const a = pctOrUsd(l); return `<div class="n ${cls} ${l.left / l.capacity <= 0.02 ? 'out' : ''}"><b>${a.v}</b><span>/ ${a.of}</span></div>`; };
+      return `<div class="total" style="--c:${p.color}">
+        <div class="who">${logo(p.logo, p.color, 18)}${p.name}<small>${accts.length > 1 ? `${accts.length} × ${accts[0].plan} combined` : accts[0].plan}</small>
+          <button class="pin on" data-pin="${pool.provider}" title="Unpin">${PIN(true)}</button></div>
+        <div class="row2">
+          <div><div class="k">${main.kind === '5h' ? '5-hour' : 'Weekly'}</div>${big(main, '')}${ui.seg(main.parts, 7)}
+            <div class="when">${main.nextReset ? `resets in <b>${fmt.in(main.nextReset - now)}</b>` : 'idle'}</div></div>
+          ${side ? `<div><div class="k">Weekly</div>${big(side, 'sm')}${ui.seg(side.parts, 4)}
+            <div class="when">resets in <b>${ui.reset(side.nextReset, now)}</b></div></div>` : '<div></div>'}
+        </div></div>`;
+    }).join('') || `<div class="total" style="--c:var(--line2)"><div class="who">Nothing pinned<small>pin a subscription's provider below</small></div></div>`;
+  }
+
+  function subs(s, now) {
+    const order = [...s.creds].sort((a, b) => (pins.includes(b.provider) - pins.includes(a.provider)) || (Object.keys(s.providers).indexOf(a.provider) - Object.keys(s.providers).indexOf(b.provider)));
+    $('subs').innerHTML = order.map(c => {
+      const p = s.providers[c.provider], shade = ui.shadeOf(s, c), on = pins.includes(c.provider);
+      const lims = c.limits.filter(l => l.kind !== 'extra').slice(0, 2);
+      const extra = c.limits.filter(l => !lims.includes(l));
+      return `<div class="sub ${on ? '' : 'dim'}">
+        <div class="who">${logo(p.logo, shade, 15)}${p.name} · ${c.name}<small>${c.plan}</small>
+          <button class="pin ${on ? 'on' : ''}" data-pin="${c.provider}" title="${on ? 'Unpin' : 'Pin'} ${p.name}">${PIN(on)}</button></div>
+        ${lims.map(l => {
+          const a = pctOrUsd(l, 1);
+          return `<div class="lim"><div class="t"><span>${l.name.replace('5-hour · ', '5h · ')}</span><span class="v ${state(l.left)}">${a.v}<em>${ui.reset(l.resetAt, now)}</em></span></div>
+            <div class="track"><i style="width:${l.left * 100}%;background:${state(l.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`;
+        }).join('')}
+        <div class="meta">${[...extra.map(l => `${l.name} ${pctOrUsd(l, 1).v}`), ...c.meta.map(([k, v]) => `${k} ${v}`)].join(' · ') || '&nbsp;'}</div>
+      </div>`;
+    }).join('');
+  }
+
+  let snap = null;
+  function draw() {
+    if (!snap) return;
+    const now = Date.now();
+    totals(snap, now); subs(snap, now);
+    $('stats').innerHTML = ui.stats(snap);
+    ui.spark($('spark'), snap, { height: 66, right: 84, only: pins });
+    $('stamp').textContent = ui.stamp(snap) + (fromUrl ? ' · pins from URL' : '');
+  }
+  lc.mount(s => { snap = s; draw(); });
+</script>
+</body>
+</html>

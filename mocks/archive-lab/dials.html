@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Dials</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px 1fr auto; overflow: hidden; }
+  .dials { display: grid; grid-template-columns: repeat(4, 1fr); min-height: 0; }
+  .dial { border-right: 1px solid var(--line); padding: 18px 22px; display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  .dial:last-child { border-right: 0; }
+  .dial .who { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
+  .dial .who small { margin-left: auto; color: var(--mute); font-weight: 400; font-size: 11.5px; }
+  svg.ring { width: 100%; height: 100%; min-height: 0; display: block; padding: 6px 0 10px; }
+  svg.ring text { font-family: "DM Sans"; }
+  .legend { display: grid; gap: 7px; font-size: 12px; }
+  .legend .row { display: flex; align-items: center; gap: 8px; }
+  .legend .row .n { color: var(--mute2); }
+  .legend .row .v { margin-left: auto; font-family: var(--mono); font-size: 11.5px; }
+  .legend .row .v em { font-style: normal; color: var(--mute); margin-left: 8px; }
+  .legend .accts { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono); font-size: 11px; color: var(--mute); padding-top: 8px; border-top: 1px solid var(--line); margin-top: 3px; }
+  .legend .accts span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend .accts i { width: 8px; height: 8px; border-radius: 2px; }
+  .key { width: 14px; display: inline-flex; justify-content: center; }
+  .key i { display: block; border-radius: 2px; }
+
+  .usage { display: grid; grid-template-columns: 300px 1fr 360px; border-top: 1px solid var(--line); height: 210px; }
+  .usage > div { padding: 16px 24px; border-right: 1px solid var(--line); min-width: 0; overflow: hidden; }
+  .usage > div:last-child { border-right: 0; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+  .stats b { display: block; font-size: 22px; font-weight: 600; letter-spacing: -.03em; }
+  .stats span { font-size: 11.5px; color: var(--mute); }
+  svg.spark { width: 100%; height: 140px; display: block; overflow: visible; }
+  svg.spark text { font-family: "DM Sans"; font-size: 11px; font-weight: 600; }
+  .models { display: grid; grid-template-columns: 8px 1fr auto; gap: 6px 10px; align-items: center; font-size: 12px; }
+  .models i { width: 7px; height: 7px; border-radius: 50%; }
+  .models .m { font-family: var(--mono); font-size: 11.5px; color: var(--mute2); }
+  .models .v { font-family: var(--mono); font-size: 11.5px; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="dials" id="dials"></section>
+<section class="usage">
+  <div><div class="h">Ongoing usage <small>today</small></div><div class="stats" id="stats"></div></div>
+  <div><div class="h">Requests per minute <small>last 60 min</small></div><svg class="spark" id="spark"></svg></div>
+  <div><div class="h">Top models <small>tokens today</small></div><div class="models" id="models"></div></div>
+</section>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('dials.html');
+  const $ = id => document.getElementById(id);
+
+  // Each ring is the whole pool: 200% for two accounts. Each account owns an equal arc,
+  // and the lit part of its arc is what that account has left.
+  function ring(cx, cy, r, w, limit, gapDeg = 6) {
+    const n = limit.parts.length, span = 360 / n;
+    const pt = (deg, rr) => { const a = (deg - 90) * Math.PI / 180; return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)]; };
+    const arc = (a0, a1) => {
+      if (a1 - a0 < 0.5) return '';
+      const [x0, y0] = pt(a0, r), [x1, y1] = pt(a1, r);
+      return `M${x0},${y0} A${r},${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1},${y1}`;
+    };
+    return limit.parts.map((p, i) => {
+      const a0 = i * span + gapDeg / 2, a1 = (i + 1) * span - gapDeg / 2;
+      return `<path d="${arc(a0, a1)}" stroke="#1c1a18" stroke-width="${w}" fill="none" stroke-linecap="butt"/>
+        <path d="${arc(a0, a0 + (a1 - a0) * p.left)}" stroke="${p.shade}" stroke-width="${w}" fill="none" stroke-linecap="butt"/>`;
+    }).join('');
+  }
+
+  function dials(s, now) {
+    $('dials').innerHTML = s.pools.map(pool => {
+      const p = s.providers[pool.provider];
+      const outer = pool.limits.find(l => l.kind === '5h') ?? pool.limits[0];
+      const inner = pool.limits.find(l => l !== outer && (l.kind === 'week' || l.kind === '5h')) ?? null;
+      const accts = s.creds.filter(c => c.provider === pool.provider);
+      const out = state(outer.left / outer.capacity) === 'out';
+      const svg = `<svg class="ring" viewBox="0 0 240 240" preserveAspectRatio="xMidYMid meet">
+        ${ring(120, 120, 104, 14, outer)}${inner ? ring(120, 120, 82, 6, inner) : ''}
+        <text x="120" y="122" text-anchor="middle" font-size="44" font-weight="600" letter-spacing="-2" fill="${out ? '#ff8b45' : p.color}">${Math.round(outer.left * 100)}%</text>
+        <text x="120" y="146" text-anchor="middle" font-size="12" fill="#77716c">of ${outer.capacity * 100}% · ${outer.name.replace('5-hour · ', '5h ')}</text>
+        <text x="120" y="164" text-anchor="middle" font-size="11.5" fill="#aaa39d" font-family="DM Mono">${outer.nextReset ? `resets ${fmt.in(outer.nextReset - now)}` : 'no active window'}</text>
+      </svg>`;
+      const rows = pool.limits.filter(l => l !== outer).map(l => {
+        const key = l === inner ? `<span class="key"><i style="width:12px;height:4px;background:${p.color}"></i></span>` : `<span class="key"><i style="width:4px;height:4px;background:#36312d"></i></span>`;
+        return `<div class="row">${key}<span class="n">${l.name}</span><span class="v ${state(l.left / l.capacity)}">${Math.round(l.left * 100)}/${l.capacity * 100}%<em>${fmt.in(l.nextReset ? l.nextReset - now : null)}</em></span></div>`;
+      }).join('');
+      const per = accts.map((c, i) => {
+        const l = c.limits.find(x => x.name === outer.name);
+        return `<span><i style="background:${p.shades[i] ?? p.color}"></i>${c.name} ${fmt.pct(l.left)} · ${c.plan}</span>`;
+      }).join('');
+      return `<div class="dial"><div class="who">${logo(p.logo, p.color, 16)}${p.name}<small>${accts.length > 1 ? `${accts.length} accounts` : '1 account'}</small></div>
+        ${svg}<div class="legend">${rows}<div class="accts">${per}</div></div></div>`;
+    }).join('');
+  }
+
+  function usage(s) {
+    const u = s.usage;
+    $('stats').innerHTML = `<div><b class="num">${fmt.num(u.requests)}</b><span>requests</span></div>
+      <div><b class="num">${fmt.tokens(u.tokens)}</b><span>tokens</span></div>
+      <div><b class="num">${(u.successRate * 100).toFixed(1)}%</b><span>success</span></div>
+      <div><b class="num">${u.failed}</b><span>failed</span></div>`;
+    const svg = $('spark'), W = svg.clientWidth || 500, H = 140, R = 90;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const max = Math.max(4, ...Object.values(u.perMin).flat());
+    let g = '';
+    const ends = [];
+    for (const [k, xs] of Object.entries(u.perMin)) {
+      const p = s.providers[k];
+      const pts = xs.map((v, i) => [(i / (xs.length - 1)) * (W - R), (H - 6) * (1 - v / max) + 3]);
+      g += `<polygon points="0,${H} ${pts.map(q => q.join(',')).join(' ')} ${W - R},${H}" fill="${p.color}" fill-opacity=".05"/>
+        <polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${p.color}" stroke-width="1.4" stroke-opacity="${k === 'xai' ? .4 : .9}"/>`;
+      ends.push({ p, y: pts.at(-1)[1], n: u.lastHour[k] });
+    }
+    ends.sort((a, b) => a.y - b.y);
+    let last = -Infinity;
+    for (const e of ends) {
+      const y = Math.max(e.y, last + 15); last = y;
+      g += `<svg x="${W - R + 10}" y="${y - 6}" width="12" height="12" viewBox="0 0 24 24" fill="${e.p.color}">${LOGOS[e.p.logo]}</svg>
+        <text x="${W - R + 27}" y="${y + 4}" fill="${e.p.color}">${e.n}<tspan fill="#77716c" font-weight="400"> /h</tspan></text>`;
+    }
+    svg.innerHTML = g;
+    $('models').innerHTML = u.models.slice(0, 6).map(m => `<i style="background:${s.providers[m.provider].color}"></i><span class="m">${m.model}</span><span class="v">${fmt.tokens(m.tokens)}</span>`).join('');
+  }
+
+  lc.mount((s, now) => { dials(s, now); usage(s); });
+</script>
+</body>
+</html>

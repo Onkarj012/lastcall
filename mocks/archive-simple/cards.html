@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Cards</title>
+<link rel="stylesheet" href="quota.css">
+<style>
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px 20px; }
+  .card .top { display: flex; align-items: center; gap: 10px; }
+  .card .nm { font-family: var(--mono); font-weight: 600; font-size: 14px; }
+  .card .plan { margin-left: auto; font-size: 12px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--mute); }
+  .card .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--mute); margin: 8px 0 4px; min-height: 18px; }
+  .card .meta b { color: var(--fg); font-weight: 500; }
+  .lim { margin-top: 14px; }
+  .lim .row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .lim .n { font-weight: 500; }
+  .lim .v { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+  .lim .v b { font-weight: 600; margin-right: 6px; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<nav class="mocks"><a href="index.html">All mocks</a><a href="cards.html" aria-current="page">1 · Cards</a><a href="rows.html">2 · Rows</a><a href="term.html">3 · Terminal</a></nav>
+<div class="head">
+  <div><h1>Quota</h1><div class="sub" data-sub>6 credentials</div></div>
+  <div class="right"><span data-status>Fetching quota…</span><button class="refresh" data-refresh><svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/></svg>Refresh</button></div>
+</div>
+<main><div class="grid" id="app"></div></main>
+<script src="logos.js"></script>
+<script src="quota.js"></script>
+<script>
+const { fmt, level, logo } = quota;
+  quota.mount((s, now) => {
+    document.querySelector('[data-sub]').textContent = `${s.creds.length} credentials · ${s.creds.length} loaded`;
+    document.getElementById('app').innerHTML = s.creds.map(c => {
+      const p = s.providers[c.provider];
+      return `<div class="card">
+        <div class="top">${logo(p.logo, p.color)}<span class="nm">${c.name}</span><span class="plan">${c.plan}</span></div>
+        <div class="meta">${c.meta.map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('')}</div>
+        ${c.limits.map(l => `<div class="lim">
+          <div class="row"><span class="n">${l.name}</span>
+            <span class="v"><b class="${level(l.left)}">${fmt.pct(l.left)}</b>${l.resetAt ? `in ${fmt.in(l.resetAt - now)}` : 'no active window'}</span></div>
+          <div class="bar"><i class="${level(l.left)}" style="width:${l.left * 100}%"></i></div>
+        </div>`).join('')}
+      </div>`;
+    }).join('');
+  });
+</script>
+</body>
+</html>

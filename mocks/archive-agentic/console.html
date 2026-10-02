@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Console</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  .page { display: grid; grid-template-columns: 1fr 380px; height: calc(100vh - 56px - 45px); }
+  .feedwrap { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+  .prompt { font-family: var(--mono); font-size: 12px; padding: 16px 24px; border-bottom: 1px solid var(--line); color: var(--mute2); display: flex; gap: 22px; flex-wrap: wrap; }
+  .prompt b { color: var(--brand); font-weight: 500; }
+  .prompt .k { color: var(--mute); }
+  .prompt .stat { display: inline-flex; gap: 6px; align-items: center; }
+  .feed { flex: 1; min-height: 0; overflow: auto; padding: 8px 0 20px; font-family: var(--mono); font-size: 12px; }
+  .row { display: grid; grid-template-columns: 72px 128px 18px 92px 150px 1fr 56px; gap: 10px; padding: 3px 24px; align-items: center; white-space: nowrap; }
+  .row:hover { background: var(--panel); }
+  .row .t { color: var(--mute); }
+  .row .c { display: flex; gap: 7px; align-items: center; color: var(--mute2); overflow: hidden; }
+  .row .arr { color: var(--line2); }
+  .row .m { color: var(--mute2); overflow: hidden; text-overflow: ellipsis; }
+  .row .tok { color: var(--mute); }
+  .row .tok b { color: var(--fg); font-weight: 400; }
+  .row .ms { text-align: right; color: var(--mute); }
+  .say { display: grid; grid-template-columns: 72px 1fr; gap: 10px; padding: 9px 24px; margin: 4px 0; align-items: start; white-space: normal; }
+  .say .t { color: var(--mute); }
+  .say .body { border-left: 2px solid var(--brand); padding-left: 12px; color: var(--fg); }
+  .say .body .who { color: var(--brand); margin-right: 8px; }
+  .say.poll .body { border-color: var(--line2); color: var(--mute); }
+  .say.poll .body .who { color: var(--mute2); }
+  .new { animation: in .5s ease-out; }
+  @keyframes in { from { background: rgba(197,172,152,.16); } }
+
+  aside { overflow: auto; padding: 18px 22px; }
+  aside h3 { font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); margin: 6px 0 12px; display: flex; align-items: center; gap: 8px; }
+  .acct { padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+  .acct:last-child { border-bottom: 0; }
+  .acct .top { display: flex; align-items: baseline; gap: 8px; }
+  .acct .nm { font-weight: 600; font-size: 14px; }
+  .acct .plan { color: var(--mute); font-size: 11px; }
+  .acct .tag { margin-left: auto; font-family: var(--mono); font-size: 11px; }
+  .gauge { display: grid; grid-template-columns: 44px 1fr 92px; gap: 10px; align-items: center; margin-top: 7px; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+  .cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+  .cells i { height: 9px; border-radius: 1px; background: var(--line); }
+  .gauge .r { text-align: right; color: var(--mute2); }
+  .acct.off .nm { color: var(--mute); }
+  @media (max-width: 1000px) { .page { grid-template-columns: 1fr; height: auto; } .feed { max-height: 70vh; } }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<div class="page">
+  <div class="feedwrap">
+    <div class="prompt" id="prompt"></div>
+    <div class="feed" id="feed"></div>
+  </div>
+  <aside id="side"></aside>
+</div>
+<footer class="foot"><span>Mock data, simulated stream every 3s. Quota polls every 5 min in the real build; Refresh polls now.</span><span>lastcall × CLIProxyAPI</span></footer>
+<script src="logos.js"></script>
+<script src="data.js"></script>
+<script>
+  const { fmt, logo, LABS } = lastcall;
+  lastcall.chrome('console.html');
+  const $ = id => document.getElementById(id);
+  let lastId = 0;
+
+  const cells = (left, color) => {
+    const n = Math.round(left * 24);
+    return `<div class="cells">${Array.from({ length: 24 }, (_, i) => `<i${i < n ? ` style="background:${color}"` : ''}></i>`).join('')}</div>`;
+  };
+
+  function feed(s) {
+    const box = $('feed');
+    const fresh = s.events.filter(e => e.id > lastId);
+    if (!fresh.length) return;
+    const first = lastId === 0;
+    lastId = fresh[fresh.length - 1].id;
+    const acct = id => s.accounts.find(a => a.id === id);
+    const client = id => s.clients.find(c => c.id === id);
+    for (const e of fresh) {
+      const el = document.createElement('div');
+      if (e.kind === 'req') {
+        const a = acct(e.account), c = client(e.client);
+        el.className = 'row';
+        el.innerHTML = `<span class="t">${fmt.clock(e.t)}</span>
+          <span class="c">${logo(c.logo) || '<span style="width:14px;text-align:center">›</span>'}${c.name}</span>
+          <span class="arr">→</span>
+          <span style="color:${a.color};display:flex;gap:6px;align-items:center">${logo(LABS[a.lab].logo)}${a.label}</span>
+          <span class="m">${e.model}</span>
+          <span class="tok"><b>${fmt.tokens(e.in)}</b> in · <b>${fmt.tokens(e.out)}</b> out</span>
+          <span class="ms">${(e.ms / 1000).toFixed(1)}s</span>`;
+      } else {
+        el.className = `say ${e.kind}`;
+        el.innerHTML = `<span class="t">${fmt.clock(e.t)}</span><div class="body"><span class="who">◆ lastcall</span>${e.text}</div>`;
+      }
+      if (!first) el.classList.add('new');
+      box.prepend(el);
+    }
+    while (box.children.length > 200) box.lastChild.remove();
+  }
+
+  function side(s, now) {
+    let h = '';
+    for (const p of s.plan) {
+      const lab = LABS[p.lab];
+      h += `<h3><span style="color:${lab.color}">${logo(lab.logo)}</span>${lab.product} pool</h3>`;
+      for (const a of s.accounts.filter(x => x.lab === p.lab).sort((x, y) => (x.route.rank ?? 9) - (y.route.rank ?? 9))) {
+        const on = a.route.rank != null;
+        const tag = a.route.next ? `<span class="tag" style="color:${a.color}">● routing</span>`
+          : on ? `<span class="tag mute2">#${a.route.rank} queued</span>`
+          : `<span class="tag" style="color:var(--bad)">${a.route.reason}</span>`;
+        h += `<div class="acct ${on ? '' : 'off'}">
+          <div class="top"><span class="nm" style="${on ? `color:${a.color}` : ''}">${a.label}</span><span class="plan">${a.plan}</span>${tag}</div>
+          <div class="gauge"><span>week</span>${cells(1 - a.weekly.used, on ? a.color : 'var(--mute)')}<span class="r">${fmt.pct(1 - a.weekly.used)} · ${fmt.duration(a.weekly.resetAt - now)}</span></div>
+          <div class="gauge"><span>5h</span>${cells(1 - a.short.used, on ? a.color : 'var(--mute)')}<span class="r">${fmt.pct(1 - a.short.used)} · ${fmt.duration(a.short.resetAt - now)}</span></div>
+        </div>`;
+      }
+    }
+    h += `<h3>Not managed</h3>${s.unmanaged.map(u => `<div class="acct off"><div class="top"><span class="nm" style="display:flex;gap:7px;align-items:center">${logo(LABS[u.lab].logo)}${u.label}</span><span class="tag mute">native routing</span></div></div>`).join('')}`;
+    $('side').innerHTML = h;
+  }
+
+  function prompt(s) {
+    const perMin = lab => s.history[lab].slice(-20).reduce((n, v) => n + v, 0);
+    const tok = s.accounts.reduce((n, a) => n + a.tokens, 0);
+    $('prompt').innerHTML = `<span><b>lastcall</b> <span class="k">▸</span> watching ${s.accounts.length} accounts · CLIProxyAPI <span class="k">127.0.0.1:</span>8317</span>
+      ${s.plan.map(p => `<span class="stat" style="color:${LABS[p.lab].color}">${logo(LABS[p.lab].logo)}<span class="num">${perMin(p.lab)}</span><span class="k">req/min</span></span>`).join('')}
+      <span class="stat"><span class="num">${fmt.tokens(tok)}</span><span class="k">tokens today</span></span>`;
+  }
+
+  lastcall.mount({ render(s, now) { feed(s); side(s, now); prompt(s); } });
+</script>
+</body>
+</html>

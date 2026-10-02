@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Pools B · Twin</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px auto 1fr 30px; overflow: hidden; }
+  .pools { display: grid; grid-template-columns: repeat(5, 1fr); min-height: 0; }
+  .pool { padding: 18px 20px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow: hidden; }
+  .pool:last-child { border-right: 0; }
+  .who { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; }
+  .who small { margin-left: auto; color: var(--mute); font-weight: 400; font-size: 11.5px; }
+  .twin { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .k { font-size: 11px; color: var(--mute); text-transform: uppercase; letter-spacing: .08em; }
+  .num-big { font-size: 38px; font-weight: 600; letter-spacing: -.045em; line-height: 1.05; }
+  .of { font-family: var(--mono); font-size: 11.5px; color: var(--mute); }
+  .twin .seg { margin-top: 8px; }
+  .twin .when { font-family: var(--mono); font-size: 11px; color: var(--mute2); margin-top: 6px; }
+  .accts { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .acct { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: center; font-size: 12px; }
+  .acct .nm { font-weight: 600; }
+  .acct .nm small { color: var(--mute); font-weight: 400; margin-left: 4px; }
+  .acct .v { font-family: var(--mono); font-size: 11px; color: var(--mute2); }
+  .acct .m { grid-column: 2 / -1; color: var(--mute); font-size: 11px; }
+  .extra { display: grid; gap: 7px; font-size: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .extra .row { display: flex; justify-content: space-between; color: var(--mute2); }
+  .extra .row b { font-family: var(--mono); font-weight: 400; font-size: 11.5px; color: var(--fg); }
+  .extra .row b em { font-style: normal; color: var(--mute); margin-left: 6px; }
+
+  .usage { display: grid; grid-template-columns: 330px 1fr 420px; border-top: 1px solid var(--line); min-height: 0; }
+  .usage > div { padding: 16px 24px; border-right: 1px solid var(--line); min-width: 0; overflow: hidden; }
+  .usage > div:last-child { border-right: 0; }
+  .usage .stats { grid-template-columns: 1fr 1fr; gap: 16px 0; }
+  .usage .stats div:nth-child(3) { border-left: 0; padding-left: 0; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<section class="pools" id="pools"></section>
+<section class="usage">
+  <div><div class="h">Ongoing usage <small>today</small></div><div class="stats" id="stats"></div></div>
+  <div><div class="h">Requests per minute <small>last 60 min</small></div><svg class="spark" id="spark" height="230"></svg></div>
+  <div><div class="h">Tokens by model <small>today</small></div><div class="models" id="models"></div></div>
+</section>
+<div class="stamp"><span><b>◆ lastcall</b> quota snapshot</span><span id="stamp"></span></div>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script src="lab-ui.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('pools-b.html');
+  const $ = id => document.getElementById(id);
+
+  // Big number for one pool window, with its segmented bar and reset.
+  const half = (l, p, now, label) => {
+    if (!l) return `<div><div class="k">${label}</div><div class="num-big" style="color:var(--line2)">—</div><div class="of">not reported</div></div>`;
+    const out = state(l.left / l.capacity) === 'out';
+    return `<div><div class="k">${label}</div>
+      <div class="num-big" style="color:${out ? '#ff8b45' : p.color}">${Math.round(l.left * 100)}%</div>
+      <div class="of">of ${l.capacity * 100}%${l.cap ? ` · ${ui.amount(l)}` : ''}</div>
+      ${ui.seg(l.parts, 7)}<div class="when">${l.nextReset ? `↻ ${fmt.in(l.nextReset - now)}` : 'idle'}</div></div>`;
+  };
+
+  function pools(s, now) {
+    $('pools').innerHTML = s.pools.map(pool => {
+      const p = s.providers[pool.provider];
+      const h5 = pool.limits.find(l => l.kind === '5h');
+      const wk = pool.limits.find(l => l.kind === 'week');
+      const rest = pool.limits.filter(l => l !== h5 && l !== wk);
+      const accts = s.creds.filter(c => c.provider === pool.provider);
+      return `<div class="pool">
+        <div class="who">${logo(p.logo, p.color, 17)}${p.name}<small>${p.lab}</small></div>
+        <div class="twin">${half(h5, p, now, h5 && h5.name.includes('·') ? '5h · Gemini' : '5-hour')}${half(wk, p, now, 'Weekly')}</div>
+        <div class="accts">${accts.map(c => {
+          const shade = ui.shadeOf(s, c);
+          const l5 = c.limits.find(l => l.kind === '5h'), lw = c.limits.find(l => l.kind === 'week');
+          return `<div class="acct">${logo(p.logo, shade, 12)}<span class="nm">${p.name} · ${c.name}<small>${c.plan}</small></span>
+            <span class="v">${l5 ? fmt.pct(l5.left) : '—'} · ${lw ? fmt.pct(lw.left) : '—'}</span>
+            ${c.meta.length ? `<span class="m">${c.meta.map(([k, v]) => `${k} ${v}`).join(' · ')}</span>` : ''}</div>`;
+        }).join('')}</div>
+        ${rest.length ? `<div class="extra">${rest.map(l => `<div class="row"><span>${l.name}</span><b class="${state(l.left / l.capacity)}">${ui.amount(l)}<em>${ui.reset(l.nextReset, now)}</em></b></div>${ui.seg(l.parts, 3)}`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  lc.mount((s, now) => {
+    pools(s, now);
+    $('stats').innerHTML = ui.stats(s);
+    ui.spark($("spark"), s, { height: 230, fill: true });
+    $('models').innerHTML = ui.models(s, 9);
+    $('stamp').textContent = ui.stamp(s);
+  });
+</script>
+</body>
+</html>

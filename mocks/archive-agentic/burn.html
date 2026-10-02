@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Burn map</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  .page { display: grid; grid-template-columns: 1fr 300px; min-height: calc(100vh - 56px - 45px); }
+  .main { border-right: 1px solid var(--line); min-width: 0; }
+  section { padding: 22px 28px 30px; border-bottom: 1px solid var(--line); }
+  section h2 { font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: baseline; gap: 10px; }
+  section h2 small { font-weight: 400; color: var(--mute); font-size: 12px; }
+  .chart { width: 100%; display: block; margin-top: 10px; overflow: visible; }
+  .chart text { font-family: "DM Sans", sans-serif; font-size: 11px; fill: var(--mute2); }
+  .chart .grid { stroke: var(--line2); stroke-dasharray: 1 3; }
+  .chart .lead { stroke: var(--line2); stroke-width: 1; }
+  .chart .zone { fill: url(#zone); }
+  .chart .lbl { font-size: 12px; font-weight: 600; }
+  .chart .sub { font-size: 10.5px; font-weight: 400; fill: var(--mute); }
+
+  .reqs { display: grid; grid-template-columns: repeat(40, 1fr); gap: 3px; align-items: end; height: 90px; margin-top: 14px; }
+  .reqs div { display: flex; flex-direction: column-reverse; gap: 2px; height: 100%; }
+  .reqs i { display: block; border-radius: 1px; }
+  .hbars { margin-top: 14px; display: grid; grid-template-columns: 150px 1fr 70px; row-gap: 9px; column-gap: 14px; align-items: center; }
+  .hbars .who { display: flex; gap: 8px; align-items: center; font-weight: 500; }
+  .hbars .track { height: 14px; }
+  .hbars .track i { display: block; height: 100%; border-radius: 2px; }
+  .hbars .v { text-align: right; color: var(--mute2); }
+
+  aside { padding: 20px 20px; }
+  aside h3 { font-size: 15px; margin: 0 0 16px; font-weight: 600; }
+  aside h3 small { color: var(--mute); font-weight: 400; margin-left: 4px; }
+  .lab { margin-bottom: 20px; }
+  .lab .hd { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+  .lab .hd span:last-child { font-weight: 500; font-size: 12px; }
+  .acct { display: flex; align-items: center; gap: 9px; padding: 3px 0; }
+  .acct .nm { flex: 1; font-weight: 500; }
+  .acct .nm small { display: block; color: var(--mute); font-weight: 400; font-size: 11px; margin-top: -2px; }
+  .acct .st { font-size: 11px; }
+  .acct .pip { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; }
+  .acct.off { color: var(--mute); }
+  .rule { color: var(--mute); font-size: 12px; line-height: 1.55; border-top: 1px solid var(--line); padding-top: 14px; }
+  @media (max-width: 980px) { .page { grid-template-columns: 1fr; } .main { border-right: 0; } }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<div class="page">
+  <div class="main">
+    <section>
+      <h2>Allowance left vs time to reset <small>weekly window · trails show the last 90s</small></h2>
+      <svg class="chart" id="map"></svg>
+    </section>
+    <section>
+      <h2>Requests <small>per 3s · last 2 min</small></h2>
+      <div class="reqs" id="reqs"></div>
+    </section>
+    <section>
+      <h2>Tokens today <small>input + output</small></h2>
+      <div class="hbars" id="tok"></div>
+    </section>
+  </div>
+  <aside id="side"></aside>
+</div>
+<footer class="foot"><span>Mock data, simulated stream every 3s. Quota polls every 5 min in the real build; Refresh polls now.</span><span>lastcall × CLIProxyAPI</span></footer>
+<script src="logos.js"></script>
+<script src="data.js"></script>
+<script>
+  const { fmt, logo, LABS } = lastcall;
+  lastcall.chrome('burn.html');
+  const WEEK = 7 * 24 * 3600e3;
+  const SHORT = { 'Weekly allowance used up': 'week spent', '5h window full': '5h full', 'Quota data stale': 'stale' };
+  const $ = id => document.getElementById(id);
+
+  function drawMap(s, now) {
+    const svg = $('map');
+    const W = svg.clientWidth || 900, H = 440;
+    const m = { l: 44, r: 190, t: 16, b: 40 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const X = ms => m.l + Math.max(0, Math.min(1, ms / WEEK)) * iw;
+    const Y = left => m.t + (1 - left) * ih;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.setAttribute('height', H);
+
+    let g = `<defs><linearGradient id="zone" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#cc785c" stop-opacity=".22"/><stop offset="1" stop-color="#cc785c" stop-opacity="0"/></linearGradient></defs>`;
+    g += `<rect class="zone" x="${X(0)}" y="${Y(1)}" width="${X(2 * 24 * 3600e3) - X(0)}" height="${Y(0.4) - Y(1)}"/>`;
+    g += `<text x="${X(0) + 10}" y="${Y(1) + 18}" style="fill:#df9477;font-weight:600">use it or lose it</text>
+          <text x="${X(0) + 10}" y="${Y(1) + 32}" class="sub">lots left, resets within 48h</text>`;
+    for (const v of [0, .25, .5, .75, 1]) {
+      g += `<line class="grid" x1="${m.l}" x2="${m.l + iw}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${m.l - 10}" y="${Y(v) + 4}" text-anchor="end">${v * 100}%</text>`;
+    }
+    for (let d = 0; d <= 7; d++) g += `<text x="${X(d * 24 * 3600e3)}" y="${H - 16}" text-anchor="middle">${d ? `${d}d` : 'now'}</text>`;
+    g += `<text x="${m.l + iw / 2}" y="${H}" text-anchor="middle" style="fill:var(--mute2)">Time until weekly reset</text>`;
+
+    const rows = s.accounts.map(a => ({ a, x: X(a.weekly.resetAt - now), y: Y(1 - a.weekly.used) }));
+    const labels = [...rows].sort((p, q) => p.y - q.y);
+    let last = -Infinity;
+    for (const r of labels) { r.ly = Math.max(r.y, last + 30); last = r.ly; }
+
+    for (const { a, x, y, ly } of rows) {
+      const on = a.route.rank != null;
+      const trail = a.trail.map(p => `${X(p.resetIn)},${Y(p.left)}`).join(' ');
+      const lx = m.l + iw + 22;
+      g += `<polyline points="${trail}" fill="none" stroke="${a.color}" stroke-opacity=".45" stroke-width="1.5"/>`;
+      g += `<path class="lead" d="M${x + 6},${y} H${lx - 30} L${lx - 14},${ly}" fill="none"/>`;
+      if (a.route.next) g += `<circle cx="${x}" cy="${y}" r="12" fill="${a.color}" opacity=".18"/>`;
+      g += `<circle cx="${x}" cy="${y}" r="4" fill="${on ? a.color : '#000'}" stroke="${a.color}" stroke-width="1.5"/>`;
+      g += `<svg x="${lx - 8}" y="${ly - 8}" width="14" height="14" viewBox="0 0 24 24" fill="${on ? a.color : '#77716c'}">${LOGOS[LABS[a.lab].logo]}</svg>`;
+      g += `<text x="${lx + 12}" y="${ly + 4}" class="lbl" style="fill:${on ? a.color : 'var(--mute)'}">${a.label}${a.route.next ? '  ← next' : ''}</text>`;
+      g += `<text x="${lx + 12}" y="${ly + 17}" class="sub">${on ? `${fmt.pct(1 - a.weekly.used)} · ${fmt.duration(a.weekly.resetAt - now)}` : a.route.reason}</text>`;
+    }
+    svg.innerHTML = g;
+  }
+
+  function drawReqs(s) {
+    const labs = Object.keys(s.history);
+    const n = s.history[labs[0]].length;
+    const max = Math.max(...Array.from({ length: n }, (_, i) => labs.reduce((t, l) => t + s.history[l][i], 0)), 6);
+    $('reqs').innerHTML = Array.from({ length: n }, (_, i) =>
+      `<div>${labs.map(l => `<i style="height:${(s.history[l][i] / max) * 100}%;background:${LABS[l].color}"></i>`).join('')}</div>`).join('');
+  }
+
+  function drawTokens(s) {
+    const rows = [...s.accounts].sort((p, q) => q.tokens - p.tokens);
+    const max = Math.max(...rows.map(a => a.tokens), 1);
+    $('tok').innerHTML = rows.map(a => `<div class="who" style="color:${a.color}">${logo(LABS[a.lab].logo)}${a.label}</div>
+      <div class="track"><i style="width:${(a.tokens / max) * 100}%;background:${a.color}"></i></div>
+      <div class="v num">${fmt.tokens(a.tokens)}</div>`).join('');
+  }
+
+  function drawSide(s, now) {
+    let h = `<h3>Accounts<small>${s.accounts.length}</small></h3>`;
+    for (const p of s.plan) {
+      const lab = LABS[p.lab];
+      const next = s.accounts.find(a => a.id === p.next);
+      h += `<div class="lab"><div class="hd"><span>${lab.product}</span><span style="color:${next?.color ?? 'var(--mute)'}">→ ${next ? next.label : 'none usable'}</span></div>`;
+      for (const a of s.accounts.filter(x => x.lab === p.lab).sort((x, y) => (x.route.rank ?? 9) - (y.route.rank ?? 9))) {
+        const on = a.route.rank != null;
+        h += `<div class="acct ${on ? '' : 'off'}" style="${on ? `color:${a.color}` : ''}">${logo(lab.logo)}
+          <div class="nm" style="color:${on ? 'var(--fg)' : 'var(--mute)'}">${a.label}<small>${a.plan}</small></div>
+          <span class="st num ${on ? 'mute2' : ''}">${on ? `#${a.route.rank}` : SHORT[a.route.reason] ?? a.route.reason}</span>
+          <span class="pip" style="${a.route.next ? `background:${a.color}` : ''}"></span></div>`;
+      }
+      h += '</div>';
+    }
+    h += `<div class="lab"><div class="hd"><span>Not managed</span><span class="mute">native routing</span></div>
+      ${s.unmanaged.map(u => `<div class="acct off">${logo(LABS[u.lab].logo)}<div class="nm">${u.label}</div><span class="pip"></span></div>`).join('')}</div>
+      <p class="rule">Routing: skip full 5h windows and spent weeks, then send traffic to whichever account resets soonest. Unspent allowance is gone at reset, so it should be spent first.</p>`;
+    $('side').innerHTML = h;
+  }
+
+  lastcall.mount({
+    render(s, now) { drawMap(s, now); drawReqs(s); drawTokens(s); drawSide(s, now); },
+  });
+</script>
+</body>
+</html>

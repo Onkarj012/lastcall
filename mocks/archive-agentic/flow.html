@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Flow</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  .stage { padding: 18px 28px 6px; }
+  .stage h2 { font-size: 15px; font-weight: 600; margin: 0; display: flex; gap: 10px; align-items: baseline; }
+  .stage h2 small { color: var(--mute); font-weight: 400; font-size: 12px; }
+  svg#flow { width: 100%; height: auto; display: block; max-height: calc(100vh - 220px); }
+  #flow text { font-family: "DM Sans", sans-serif; fill: var(--fg); }
+  #flow .mono { font-family: "DM Mono", monospace; }
+  #flow .mute { fill: var(--mute); }
+  #flow .mute2 { fill: var(--mute2); }
+  #flow .wire { fill: none; stroke: var(--line2); stroke-width: 1; transition: stroke .4s, stroke-width .4s, opacity .4s; }
+  #flow .wire.native { stroke-dasharray: 3 4; opacity: .6; }
+  #flow .node { fill: var(--panel); stroke: var(--line2); }
+  .said { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
+  .said div { padding: 14px 28px; border-right: 1px solid var(--line); font-size: 12px; color: var(--mute2); }
+  .said div:last-child { border-right: 0; }
+  .said .t { font-family: var(--mono); color: var(--mute); font-size: 11px; display: block; margin-bottom: 3px; }
+  .said .t b { color: var(--brand); font-weight: 500; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<div class="stage">
+  <h2>Live routing <small>agents → CLIProxyAPI → accounts · each dot is a request</small></h2>
+  <svg id="flow" viewBox="0 0 1200 660">
+    <defs><filter id="glow" x="-200%" y="-200%" width="500%" height="500%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <g id="wires"></g><g id="nodes"></g><g id="dyn"></g><g id="dots" filter="url(#glow)"></g>
+  </svg>
+</div>
+<div class="said" id="said"></div>
+<footer class="foot"><span>Mock data, simulated stream every 3s. Quota polls every 5 min in the real build; Refresh polls now.</span><span>lastcall × CLIProxyAPI</span></footer>
+<script src="logos.js"></script>
+<script src="data.js"></script>
+<script>
+  const { fmt, LABS } = lastcall;
+  lastcall.chrome('flow.html');
+  const $ = id => document.getElementById(id);
+  const PX = { l: 470, r: 650, y: 330 };
+  const ACX = 900;
+  const SHORT = { 'Weekly allowance used up': 'week spent', '5h window full': '5h full', 'Quota data stale': 'stale' };
+  const icon = (key, x, y, size, color) => key && LOGOS[key]
+    ? `<svg x="${x - size / 2}" y="${y - size / 2}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}">${LOGOS[key]}</svg>` : '';
+
+  let layout = null, lastId = 0;
+
+  function build(s) {
+    const clients = s.clients.map((c, i) => ({ ...c, x: 150, y: 190 + i * 95 }));
+    const right = [];
+    let y = 60;
+    for (const p of s.plan) {
+      right.push({ head: LABS[p.lab], y }); y += 40;
+      for (const a of s.accounts.filter(x => x.lab === p.lab)) { right.push({ a, y }); y += 62; }
+      y += 6;
+    }
+    right.push({ head: { product: 'Not managed', color: 'var(--mute)' }, y }); y += 40;
+    for (const u of s.unmanaged) { right.push({ u, y }); y += 50; }
+    layout = { clients, right };
+
+    let w = '', n = '';
+    for (const c of clients) {
+      w += `<path id="c-${c.id}" class="wire" d="M${c.x + 70},${c.y} C${c.x + 200},${c.y} ${PX.l - 130},${PX.y} ${PX.l},${PX.y}"/>`;
+      n += `<rect class="node" x="${c.x - 80}" y="${c.y - 22}" width="150" height="44" rx="22"/>
+        ${icon(c.logo, c.x - 56, c.y, 16, c.logo === 'claude' ? '#d97757' : '#fff') || `<text x="${c.x - 56}" y="${c.y + 5}" text-anchor="middle" class="mono mute2">›_</text>`}
+        <text x="${c.x - 40}" y="${c.y + 4}" font-size="13" font-weight="500">${c.name}</text>`;
+    }
+    for (const r of right) {
+      if (r.head) { n += `<text x="${ACX - 30}" y="${r.y}" font-size="11" font-weight="600" letter-spacing=".08em" style="fill:${r.head.color}">${r.head.product.toUpperCase()}</text>`; continue; }
+      const id = r.a?.id ?? r.u.id;
+      w += `<path id="a-${id}" class="wire ${r.u ? 'native' : ''}" d="M${PX.r},${PX.y} C${PX.r + 150},${PX.y} ${ACX - 170},${r.y} ${ACX - 26},${r.y}"/>`;
+    }
+    n += `<rect class="node" x="${PX.l}" y="${PX.y - 70}" width="${PX.r - PX.l}" height="140" rx="14"/>
+      <text x="${(PX.l + PX.r) / 2}" y="${PX.y - 40}" text-anchor="middle" font-size="14" font-weight="600">CLIProxyAPI</text>
+      <text x="${(PX.l + PX.r) / 2}" y="${PX.y - 23}" text-anchor="middle" font-size="11" class="mono mute">127.0.0.1:8317</text>`;
+    $('wires').innerHTML = w;
+    $('nodes').innerHTML = n;
+  }
+
+  const ring = (cx, cy, r, left, color, width) => {
+    const c = 2 * Math.PI * r;
+    return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#1c1a18" stroke-width="${width}"/>
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round"
+        stroke-dasharray="${c * Math.max(0.001, left)} ${c}" transform="rotate(-90 ${cx} ${cy})"/>`;
+  };
+
+  function dyn(s, now) {
+    let d = '';
+    const nexts = new Set(s.plan.map(p => p.next));
+    for (const r of layout.right) {
+      if (r.u) {
+        d += `${icon(LABS[r.u.lab].logo, ACX, r.y, 16, '#77716c')}<text x="${ACX + 34}" y="${r.y + 4}" font-size="13" class="mute">${r.u.label}</text>`;
+        continue;
+      }
+      if (!r.a) continue;
+      const a = s.accounts.find(x => x.id === r.a.id);
+      const on = a.route.rank != null;
+      const col = on ? a.color : '#77716c';
+      const wire = $(`a-${a.id}`);
+      wire.style.stroke = nexts.has(a.id) ? a.color : '';
+      wire.style.strokeWidth = nexts.has(a.id) ? 1.6 : '';
+      wire.style.opacity = on ? '' : 0.35;
+      d += ring(ACX, r.y, 23, 1 - a.weekly.used, col, 3) + ring(ACX, r.y, 16, 1 - a.short.used, col, 2);
+      d += icon(LABS[a.lab].logo, ACX, r.y, 13, col);
+      d += `<text x="${ACX + 36}" y="${r.y - 4}" font-size="13.5" font-weight="600" style="fill:${on ? a.color : 'var(--mute)'}">${a.label}<tspan class="mute" font-weight="400" font-size="11.5" dx="8">${a.plan}</tspan></text>
+        <text x="${ACX + 36}" y="${r.y + 13}" font-size="11.5" class="mono ${on ? 'mute2' : ''}" style="${on ? '' : 'fill:var(--bad)'}">${
+          a.route.next ? `● routing · ${fmt.pct(1 - a.weekly.used)} · ${fmt.duration(a.weekly.resetAt - now)}`
+          : on ? `#${a.route.rank} queued · ${fmt.pct(1 - a.weekly.used)} · ${fmt.duration(a.weekly.resetAt - now)}`
+          : `${SHORT[a.route.reason] ?? a.route.reason} · back ${fmt.duration((a.route.reason === '5h window full' ? a.short.resetAt : a.weekly.resetAt) - now)}`}</text>`;
+    }
+    s.plan.forEach((p, i) => {
+      const a = s.accounts.find(x => x.id === p.next);
+      const lab = LABS[p.lab];
+      const y = PX.y + 8 + i * 22;
+      d += icon(lab.logo, PX.l + 22, y - 4, 12, lab.color);
+      d += `<text x="${PX.l + 34}" y="${y}" font-size="11.5" class="mono mute2">→ <tspan style="fill:${a ? a.color : 'var(--mute)'}">${a ? a.label : 'none'}</tspan></text>`;
+    });
+    const rate = Object.values(s.history).reduce((n, h) => n + h.slice(-20).reduce((m, v) => m + v, 0), 0);
+    d += `<text x="${(PX.l + PX.r) / 2}" y="${PX.y + 58}" text-anchor="middle" font-size="11" class="mono mute">${rate} req/min</text>`;
+    $('dyn').innerHTML = d;
+
+    const said = s.events.filter(e => e.kind !== 'req').slice(-3).reverse();
+    $('said').innerHTML = said.map(e => `<div><span class="t"><b>◆ lastcall</b> ${fmt.clock(e.t)}</span>${e.text}</div>`).join('');
+  }
+
+  // Each request becomes a dot riding client wire → proxy → account wire.
+  const dots = [];
+  function spawn(e, a, delay) {
+    setTimeout(() => {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      el.setAttribute('r', 3.2);
+      el.setAttribute('fill', a.color);
+      $('dots').append(el);
+      dots.push({ el, p1: $(`c-${e.client}`), p2: $(`a-${a.id}`), start: performance.now() });
+    }, delay);
+  }
+  function frame(t) {
+    for (let i = dots.length - 1; i >= 0; i--) {
+      const d = dots[i];
+      const u = (t - d.start) / 1600;
+      if (u >= 1) { d.el.remove(); dots.splice(i, 1); continue; }
+      const [path, k] = u < 0.5 ? [d.p1, u * 2] : [d.p2, (u - 0.5) * 2];
+      const pt = path.getPointAtLength(path.getTotalLength() * k);
+      d.el.setAttribute('cx', pt.x);
+      d.el.setAttribute('cy', pt.y);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  lastcall.mount({
+    render(s, now) {
+      if (!layout) build(s);
+      dyn(s, now);
+      const fresh = s.events.filter(e => e.id > lastId && e.kind === 'req');
+      if (lastId) for (const e of fresh) spawn(e, s.accounts.find(a => a.id === e.account), Math.max(0, e.t - (s.generatedAt - 3000)));
+      lastId = s.events.at(-1)?.id ?? lastId;
+    },
+  });
+</script>
+</body>
+</html>

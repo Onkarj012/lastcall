@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Rows</title>
+<link rel="stylesheet" href="quota.css">
+<style>
+table { width: 100%; border-collapse: collapse; }
+  td { padding: 14px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:first-child td { border-top: 1px solid var(--line); }
+  td.who { width: 230px; }
+  td.who .nm { display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-weight: 600; font-size: 13px; }
+  td.who .plan { color: var(--mute); font-size: 12px; margin: 2px 0 0 25px; }
+  .cell { width: 100%; min-width: 150px; }
+  .cell .row { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; }
+  .cell .n { color: var(--mute); }
+  .cell .v { font-family: var(--mono); }
+  .cell .v span { color: var(--dim); margin-left: 6px; }
+  td.next { width: 120px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--mute); }
+  td.next b { display: block; color: var(--fg); font-weight: 500; font-size: 13px; }
+</style>
+</head>
+<body>
+<nav class="mocks"><a href="index.html">All mocks</a><a href="cards.html">1 · Cards</a><a href="rows.html" aria-current="page">2 · Rows</a><a href="term.html">3 · Terminal</a></nav>
+<div class="head">
+  <div><h1>Quota</h1><div class="sub" data-sub>6 credentials</div></div>
+  <div class="right"><span data-status>Fetching quota…</span><button class="refresh" data-refresh><svg viewBox="0 0 16 16"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3"/></svg>Refresh</button></div>
+</div>
+<main><table><tbody id="app"></tbody></table></main>
+<script src="logos.js"></script>
+<script src="quota.js"></script>
+<script>
+const { fmt, level, logo } = quota;
+  const COLS = 3;
+  quota.mount((s, now) => {
+    document.querySelector('[data-sub]').textContent = `${s.creds.length} credentials · ${s.creds.length} loaded`;
+    document.getElementById('app').innerHTML = s.creds.map(c => {
+      const p = s.providers[c.provider];
+      const lims = c.limits;
+      const soon = c.limits.filter(l => l.resetAt).sort((a, b) => a.resetAt - b.resetAt)[0];
+      const cells = Array.from({ length: COLS }, (_, i) => {
+        const l = lims[i];
+        return `<td>${l ? `<div class="cell">
+          <div class="row"><span class="n">${l.name}</span><span class="v ${level(l.left)}">${fmt.pct(l.left)}<span>${l.resetAt ? fmt.in(l.resetAt - now) : ''}</span></span></div>
+          <div class="bar"><i class="${level(l.left)}" style="width:${l.left * 100}%"></i></div></div>` : ''}</td>`;
+      }).join('');
+      return `<tr><td class="who"><div class="nm">${logo(p.logo, p.color)}${c.name}</div><div class="plan">${c.plan}${c.meta.length ? ` · ${c.meta.map(([k, v]) => `${k} ${v}`).join(' · ')}` : ''}</div></td>
+        ${cells}<td class="next">${soon ? `next reset<b>${fmt.in(soon.resetAt - now)}</b>` : ''}</td></tr>`;
+    }).join('');
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+/* Matches the CPAMC panel: near-black, soft cards, green quota bars, mono numbers. */
+:root {
+  --bg: #0b0b0b; --card: #141414; --line: #262626; --fg: #f2f2f2; --mute: #8a8a8a; --dim: #5c5c5c;
+  --ok: #4ade80; --low: #fbbf24; --out: #f87171; --track: #262626;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; -webkit-font-smoothing: antialiased; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); }
+
+nav.mocks { display: flex; gap: 18px; padding: 10px 24px; border-bottom: 1px solid var(--line); font-size: 13px; }
+nav.mocks a { color: var(--mute); text-decoration: none; }
+nav.mocks a:hover, nav.mocks a[aria-current] { color: var(--fg); }
+
+.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1180px; margin: 0 auto; padding: 26px 24px 18px; }
+.head h1 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
+.head .sub { font-family: var(--mono); font-size: 12px; color: var(--mute); margin-top: 2px; }
+.head .right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--mute); }
+button.refresh { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 13px; font-weight: 500; padding: 7px 14px; border-radius: 999px; border: 0; background: var(--fg); color: #000; cursor: pointer; }
+button.refresh svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+button.refresh.busy svg { animation: spin .8s linear infinite; }
+button.refresh:disabled { opacity: .7; cursor: default; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+main { max-width: 1180px; margin: 0 auto; padding: 0 24px 40px; }
+
+.bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 3px; background: var(--ok); transition: width .6s ease; }
+.bar i.low { background: var(--low); }
+.bar i.out { background: var(--out); }
+.ok { color: var(--ok); } .low { color: var(--low); } .out { color: var(--out); }

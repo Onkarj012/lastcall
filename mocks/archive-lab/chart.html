@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · Chart</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  body { height: 100vh; display: grid; grid-template-rows: 52px 1fr; overflow: hidden; }
+  .page { display: grid; grid-template-columns: 1fr 330px; min-height: 0; }
+  .main { border-right: 1px solid var(--line); padding: 18px 26px; display: grid; grid-template-rows: auto auto 1fr; gap: 18px; min-height: 0; overflow: hidden; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .tile { background: var(--bg); padding: 12px 16px; }
+  .tile .who { display: flex; gap: 7px; align-items: center; font-weight: 600; }
+  .tile .who small { margin-left: auto; color: var(--mute); font-weight: 400; font-size: 11px; }
+  .tile .v { display: flex; align-items: baseline; gap: 5px; margin-top: 6px; }
+  .tile .v b { font-size: 28px; font-weight: 600; letter-spacing: -.04em; line-height: 1; }
+  .tile .v span { font-family: var(--mono); color: var(--mute); font-size: 12px; }
+  .tile .s { font-size: 11px; color: var(--mute2); margin-top: 3px; font-family: var(--mono); }
+
+  .chart { display: grid; grid-template-columns: 170px 1fr 92px; column-gap: 14px; align-content: start; min-height: 0; }
+  .axis { grid-column: 2; position: relative; height: 18px; font-size: 10.5px; color: var(--mute); border-bottom: 1px solid var(--line); }
+  .axis span { position: absolute; transform: translateX(-50%); }
+  .grp { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-weight: 600; padding: 10px 0 4px; }
+  .lbl { font-size: 12px; color: var(--mute2); display: flex; align-items: center; justify-content: flex-end; gap: 6px; text-align: right; height: 31px; }
+  .lane { position: relative; height: 31px; background-image: linear-gradient(to right, #1c1a18 1px, transparent 1px); background-size: 25% 100%; }
+  .lane .stack { position: absolute; top: 8px; height: 15px; left: 0; right: 0; display: flex; }
+  .lane .stack i + i { box-shadow: inset 2px 0 0 #000; }
+  .lane .stack i { height: 100%; border-radius: 1px; transition: width .6s ease; }
+  .lane .cap { position: absolute; top: 5px; height: 21px; border-right: 1px dashed #36312d; }
+  .lane .val { position: absolute; top: 7px; font-family: var(--mono); font-size: 11px; padding-left: 8px; white-space: nowrap; }
+  .when { font-family: var(--mono); font-size: 11px; color: var(--mute); height: 31px; display: flex; align-items: center; justify-content: flex-end; }
+
+  aside { padding: 18px 20px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 18px; min-height: 0; overflow: hidden; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .stats b { display: block; font-size: 19px; font-weight: 600; letter-spacing: -.03em; }
+  .stats span { font-size: 11px; color: var(--mute); }
+  svg.spark { width: 100%; height: 96px; display: block; }
+  .list .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; }
+  .list .row .n { font-weight: 500; }
+  .list .row .v { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--mute2); }
+  .list .row .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .list .row.off { color: var(--mute); }
+  .list .row.off .n { font-weight: 400; }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<div class="page">
+  <div class="main">
+    <div class="tiles" id="tiles"></div>
+    <div class="h" style="margin:0">Allowance left <small>stacked by account · dashed line is the pool's full capacity</small></div>
+    <div class="chart" id="chart"></div>
+  </div>
+  <aside>
+    <div><div class="h">Ongoing usage <small>today</small></div><div class="stats" id="stats"></div></div>
+    <div><div class="h">Requests <small>per min · last hour</small></div><svg class="spark" id="spark"></svg></div>
+    <div class="list" id="labs"></div>
+    <div class="list" id="models"></div>
+  </aside>
+</div>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script>
+  const { fmt, state, logo } = lc;
+  lc.chrome('chart.html');
+  const $ = id => document.getElementById(id);
+  const SCALE = 2; // axis runs to 200%
+
+  function tiles(s, now) {
+    $('tiles').innerHTML = s.pools.map(pool => {
+      const p = s.providers[pool.provider];
+      const h = pool.limits.find(l => l.kind === '5h') ?? pool.limits[0];
+      const out = state(h.left / h.capacity) === 'out';
+      return `<div class="tile"><div class="who">${logo(p.logo, p.color)}${p.name}<small>${h.name.replace('5-hour · ', '5h ')}</small></div>
+        <div class="v"><b style="color:${out ? '#ff8b45' : p.color}">${Math.round(h.left * 100)}%</b><span>/ ${h.capacity * 100}%</span></div>
+        <div class="s">${h.nextReset ? `resets ${fmt.in(h.nextReset - now)}` : 'no active window'}</div></div>`;
+    }).join('');
+  }
+
+  function chart(s, now) {
+    let h = `<div></div><div class="axis">${[0, .5, 1, 1.5, 2].map(v => `<span style="left:${(v / SCALE) * 100}%">${v * 100}%</span>`).join('')}</div><div></div>`;
+    for (const pool of s.pools) {
+      const p = s.providers[pool.provider];
+      h += `<div class="grp" style="color:${p.color}">${logo(p.logo, p.color)}${p.name}</div>`;
+      for (const l of pool.limits) {
+        const st = state(l.left / l.capacity);
+        h += `<div class="lbl">${l.name}</div>
+          <div class="lane"><div class="cap" style="width:${(l.capacity / SCALE) * 100}%"></div>
+            <div class="stack">${l.parts.map(pt => `<i style="width:${(pt.left / SCALE) * 100}%;background:${pt.shade}" title="${pt.name}: ${fmt.pct(pt.left)}"></i>`).join('')}</div>
+            <div class="val ${st}" style="left:${(l.left / SCALE) * 100}%;color:${st === 'out' ? '' : p.color}">${Math.round(l.left * 100)}%</div></div>
+          <div class="when">${fmt.in(l.nextReset ? l.nextReset - now : null)}</div>`;
+      }
+    }
+    $('chart').innerHTML = h;
+  }
+
+  function side(s, now) {
+    const u = s.usage;
+    $('stats').innerHTML = `<div><b class="num">${fmt.num(u.requests)}</b><span>requests</span></div>
+      <div><b class="num">${fmt.tokens(u.tokens)}</b><span>tokens</span></div>
+      <div><b class="num">${(u.successRate * 100).toFixed(1)}%</b><span>success</span></div>`;
+    const svg = $('spark'), W = svg.clientWidth || 290, H = 96;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    const max = Math.max(4, ...Object.values(u.perMin).flat());
+    svg.innerHTML = Object.entries(u.perMin).map(([k, xs]) =>
+      `<polyline points="${xs.map((v, i) => `${(i / (xs.length - 1)) * W},${(H - 4) * (1 - v / max) + 2}`).join(' ')}" fill="none" stroke="${s.providers[k].color}" stroke-width="1.3" stroke-opacity="${k === 'xai' ? .4 : .9}"/>`).join('');
+    $('labs').innerHTML = `<div class="h" style="margin-bottom:6px">Accounts <small>${s.creds.length}</small></div>` + s.creds.map(c => {
+      const p = s.providers[c.provider];
+      const idx = s.creds.filter(x => x.provider === c.provider).indexOf(c);
+      const tight = c.limits.reduce((a, b) => (b.left < a.left ? b : a));
+      const out = tight.left <= 0.02;
+      return `<div class="row ${out ? 'off' : ''}">${logo(p.logo, out ? '#77716c' : p.shades[idx] ?? p.color)}<span class="n">${p.name} · ${c.name}</span><span class="mute" style="font-size:11px">${c.plan}</span>
+        <span class="v ${state(tight.left)}">${fmt.pct(tight.left)} ${tight.name.split(' ')[0].replace('5-hour', '5h')}</span><span class="dot" style="${out ? 'border:1.5px solid #77716c' : `background:${p.shades[idx] ?? p.color}`}"></span></div>`;
+    }).join('');
+    $('models').innerHTML = `<div class="h" style="margin-bottom:6px">Top models <small>tokens today</small></div>` + u.models.slice(0, 5).map(m =>
+      `<div class="row"><span class="dot" style="background:${s.providers[m.provider].color}"></span><span class="mono mute2" style="font-size:11.5px">${m.model}</span><span class="v">${fmt.tokens(m.tokens)}</span></div>`).join('');
+  }
+
+  lc.mount((s, now) => { tiles(s, now); chart(s, now); side(s, now); });
+</script>
+</body>
+</html>

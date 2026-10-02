@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lastcall · quota mocks</title>
+<link rel="stylesheet" href="lab.css">
+<style>
+  main { max-width: 1040px; margin: 0 auto; padding: 56px 28px; }
+  h1 { font-size: 42px; letter-spacing: -.04em; font-weight: 600; margin: 0; }
+  h1 span { color: var(--brand); font-weight: 400; }
+  p.lede { color: var(--mute2); font-size: 15px; max-width: 60ch; margin: 12px 0 36px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  a.tile { background: var(--bg); padding: 22px; text-decoration: none; color: inherit; display: flex; flex-direction: column; gap: 8px; }
+  a.tile:hover { background: var(--panel); }
+  a.tile .n { font-family: var(--mono); color: var(--mute); font-size: 12px; }
+  a.tile b { font-size: 19px; letter-spacing: -.02em; }
+  a.tile p { color: var(--mute2); margin: 0; }
+  a.tile .go { color: var(--brand); font-size: 12px; margin-top: 10px; }
+  .old { margin-top: 28px; color: var(--mute); font-size: 12px; }
+  .old a { color: var(--mute2); }
+</style>
+</head>
+<body>
+<header id="bar"></header>
+<main>
+  <h1>last<span>call</span> quota</h1>
+  <p class="lede">CPAMC's quota data in slopalytics' clothes. Accounts from the same provider add up into one pool, so two Claude Pro accounts read out of 200%. Each page fits one screen, made for the snapshot skill to capture whole.</p>
+  <a class="tile" href="home.html" style="border:1px solid var(--line);margin-bottom:16px"><span class="n">NEW</span><b>Quota · pinned</b><p>The decluttered page: pin the pools you use, read one verdict per pool, see the week's pace. Antigravity and Grok live in a slim strip.</p><span class="go">Open →</span></a>
+  <div class="tiles">
+    <a class="tile" href="pools-a.html"><span class="n">A</span><b>Refined</b><p>The Pools you liked, polished: tinted pool cards with per-account labels, a next-reset column, dollar windows for opencode.</p><span class="go">Open →</span></a>
+    <a class="tile" href="pools-b.html"><span class="n">B</span><b>Twin</b><p>Each pool card shows 5-hour and weekly side by side, accounts listed inside the card, a wide usage strip below.</p><span class="go">Open →</span></a>
+    <a class="tile" href="pools-c.html"><span class="n">C</span><b>Grid</b><p>Slim pool cards on top, then every limit as a filled tile in one grid. Empty limits glow orange.</p><span class="go">Open →</span></a>
+  </div>
+  <p class="old">Baseline: <a href="pools.html">Pools</a> · earlier rounds: <a href="archive-lab/dials.html">dials</a> · <a href="archive-lab/chart.html">chart</a> · <a href="archive-simple/index.html">simple</a> · <a href="archive-agentic/index.html">agentic</a></p>
+</main>
+<script src="logos.js"></script>
+<script src="lab.js"></script>
+<script>lc.chrome('', { live: false });</script>
+</body>
+</html>
