@@ -132,11 +132,11 @@
   function draw() {
     const now = Date.now();
     drawStatus(now);
-    const view = location.hash === '#settings' ? 'settings' : 'usage';
+    window.lastcallSnap = snap;
+    const view = { '#settings': 'settings', '#analytics': 'analytics' }[location.hash] ?? 'usage';
     document.querySelectorAll('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === view));
-    $('usage').hidden = view !== 'usage';
-    $('settings').hidden = view !== 'settings';
-    if (view === 'usage') { drawTotals(now); drawSubs(now); } else drawSettings(now);
+    for (const v of ['usage', 'analytics', 'settings']) $('v-' + v).hidden = view !== v;
+    if (view === 'usage') { drawTotals(now); drawSubs(now); } else if (view === 'settings') drawSettings(now);
     $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.length} credentials · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
   }
 
@@ -265,7 +265,7 @@
     }).join('');
     const present = [...new Set(snap.accounts.map(a => a.provider))];
     const qAt = new Date(snap.quota_at);
-    $('settings').innerHTML = `
+    $('v-settings').innerHTML = `
       <section class="panel">
         <h2>Reset-first routing
           <span class="btns">
@@ -375,7 +375,8 @@
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
   $('add').addEventListener('click', () => loginModal());
 
-  addEventListener('hashchange', () => snap && draw());
+  addEventListener('hashchange', () => { if (snap) draw(); if (location.hash === '#analytics') window.analytics?.show(); });
+  if (location.hash === '#analytics') setTimeout(() => window.analytics?.show(), 0);
   load();
   setInterval(load, POLL);
 })();

@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-//go:embed index.html app.js app.css logos.js
+//go:embed index.html app.js app.css logos.js analytics.js
 var files embed.FS
 
 var FS fs.FS = files

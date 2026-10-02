@@ -17,16 +17,25 @@ import (
 	"lastcall/internal/quota"
 )
 
-// Monthly caps in USD per model, from opencode.ai/docs/go (read 2026-10-03).
-// Models missing here show spend without a limit.
+// Monthly caps in USD per model, from opencode.ai/docs/go (verbatim, read 2026-10-03):
+// "Each model has the following usage limits: 5-hour — 20% of the monthly limit;
+// weekly — 50%; and monthly — 100%." Free models are unlimited and omitted.
 var caps = map[string]map[string]float64{
 	"go": {
-		"kimi-k3": 15, "glm-5.3": 15, "glm-5.2": 60, "kimi-k2.6": 60, "hy3": 60,
-		"qwen3.8-flash": 30, "deepseek-v4-flash": 30, "grok-4.7": 15, "grok-4.6": 15, "gpt-6-luna": 15,
+		"glm-5.3-flash": 60, "glm-5.3": 15, "glm-5.2": 60, "kimi-k3": 15, "kimi-k2.7-code": 60, "kimi-k2.6": 60,
+		"longcat-2.0": 60, "mimo-v2.6-flash": 60, "mimo-v2.6-pro": 15, "mimo-v2.5": 60, "mimo-v2.5-pro": 15,
+		"minimax-m3": 60, "minimax-m2.7": 60, "muse-spark-1.3-contributor": 60, "muse-spark-1.2-contributor": 60,
+		"qwen3.8-max": 15, "qwen3.8-flash": 30, "qwen3.7-plus": 60, "deepseek-v4.1-flash": 60, "deepseek-v4-pro": 15,
+		"deepseek-v4-flash": 30, "deepseek-v4-flash-vision-exp": 15, "hy4-preview": 30, "hy3": 60,
+		"grok-4.7": 15, "grok-4.6": 15, "gpt-6-luna": 15, "gpt-5.6-luna": 15,
 	},
 	"go-plus": {
-		"kimi-k3": 60, "glm-5.3": 120, "glm-5.2": 180, "kimi-k2.6": 240, "hy3": 240,
-		"qwen3.8-flash": 90, "deepseek-v4-flash": 120, "grok-4.7": 60, "grok-4.6": 60, "gpt-6-luna": 60,
+		"glm-5.3-flash": 180, "glm-5.3": 120, "glm-5.2": 180, "kimi-k3": 60, "kimi-k2.7-code": 180, "kimi-k2.6": 240,
+		"longcat-2.0": 240, "mimo-v2.6-flash": 120, "mimo-v2.6-pro": 60, "mimo-v2.5": 120, "mimo-v2.5-pro": 60,
+		"minimax-m3": 180, "minimax-m2.7": 240, "muse-spark-1.3-contributor": 120, "muse-spark-1.2-contributor": 120,
+		"qwen3.8-max": 60, "qwen3.8-flash": 90, "qwen3.7-plus": 180, "deepseek-v4.1-flash": 120, "deepseek-v4-pro": 60,
+		"deepseek-v4-flash": 120, "deepseek-v4-flash-vision-exp": 60, "hy4-preview": 120, "hy3": 240,
+		"grok-4.7": 60, "grok-4.6": 60, "gpt-6-luna": 60, "gpt-5.6-luna": 60,
 	},
 }
 
