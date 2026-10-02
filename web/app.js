@@ -132,11 +132,8 @@
   function draw() {
     const now = Date.now();
     drawStatus(now);
-    window.lastcallSnap = snap;
-    const view = { '#settings': 'settings', '#analytics': 'analytics' }[location.hash] ?? 'usage';
-    document.querySelectorAll('[data-tab]').forEach(a => a.classList.toggle('on', a.dataset.tab === view));
-    for (const v of ['usage', 'analytics', 'settings']) $('v-' + v).hidden = view !== v;
-    if (view === 'usage') { drawTotals(now); drawSubs(now); } else if (view === 'settings') drawSettings(now);
+    drawTotals(now);
+    drawSubs(now);
     $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.length} credentials · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
   }
 
@@ -253,50 +250,6 @@
     return f ? ` · 5h frees from ${until(f.reset_at, now)}` : '';
   };
 
-  function drawSettings(now) {
-    const r = snap.routing;
-    const lbl = name => short(snap.accounts.find(a => a.name === name)?.label ?? name);
-    const pools = r.pools.map(pl => {
-      const p = prov(pl.provider);
-      if (pl.frozen) return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="low">waiting: ${esc(pl.frozen)}</span></div>`;
-      const ranked = pl.slots.filter(x => x.rank).map(x => lbl(x.name));
-      const skipped = pl.slots.filter(x => !x.rank).map(x => `${lbl(x.name)} (${esc(x.reason)})`);
-      return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="order">${ranked.join(' → ') || 'nothing usable'}${skipped.length ? ` <span class="skip">· skips ${skipped.join(', ')}</span>` : ''}</span></div>`;
-    }).join('');
-    const present = [...new Set(snap.accounts.map(a => a.provider))];
-    const qAt = new Date(snap.quota_at);
-    $('v-settings').innerHTML = `
-      <section class="panel">
-        <h2>Reset-first routing
-          <span class="btns">
-            <span class="toggle ${r.auto ? 'on' : ''}" data-auto="${r.auto ? 0 : 1}"><i></i>Auto</span>
-            <button class="btn primary" data-route="apply">Apply now</button>
-            ${r.applied ? '<button class="btn" data-route="restore">Restore originals</button>' : ''}
-          </span></h2>
-        <p>Sends traffic to the account whose weekly allowance resets soonest, so it gets used before it expires. Skips accounts that are disabled, cooling down, or out of a 5-hour or weekly window. ${r.auto ? 'Auto re-applies after every quota check.' : 'Nothing is written to CLIProxyAPI until you apply.'}</p>
-        <div class="rows">${pools || '<div class="r mute">No managed providers have accounts.</div>'}</div>
-        <p style="font-size:13px">${r.error ? `<span class="out">${esc(r.error)}</span>` : r.applied ? 'Priorities are written to CLIProxyAPI. Restore puts back what was there before, skipping any value changed elsewhere.' : 'Status: dry run.'}</p>
-      </section>
-      <section class="panel">
-        <h2>Pinned providers</h2>
-        <p>Pinned providers get a combined card at the top of Usage and are listed first.</p>
-        <div class="rows">${present.map(id => {
-          const p = prov(id), on = snap.pins.includes(id);
-          return `<div class="r">${logo(p.logo, p.color, 16)}<b>${p.name}</b><span class="toggle end ${on ? 'on' : ''}" data-pin="${id}"><i></i>${on ? 'Pinned' : 'Not pinned'}</span></div>`;
-        }).join('')}</div>
-      </section>
-      <section class="panel">
-        <h2>Connection</h2>
-        <div class="rows">
-          <div class="r">CLIProxyAPI<span class="mono end">${esc(snap.cpa_url)}</span></div>
-          <div class="r">Management key<span class="mono end ${snap.error ? 'out' : ''}">${snap.error ? esc(snap.error) : 'accepted'}</span></div>
-          <div class="r">Quota check<span class="mono end">every ${Math.round(snap.quota_every_s / 60)} min · last ${qAt.getFullYear() > 2000 ? fmt.ago(now - qAt) : 'pending'}</span></div>
-          <div class="r">opencode<span class="mono end">${snap.accounts.some(a => a.local) ? 'Go caps · read from ~/.local/share/opencode' : 'database not found'}</span></div>
-        </div>
-        <p style="font-size:13px">Config, logs and plugins stay in <a href="${esc(snap.cpa_url)}/management.html" target="_blank" rel="noopener">CLIProxyAPI's own panel</a>.</p>
-      </section>`;
-  }
-
   // ---- login modal ----
   function loginModal(provider) {
     const scrim = document.createElement('div');
@@ -375,8 +328,6 @@
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
   $('add').addEventListener('click', () => loginModal());
 
-  addEventListener('hashchange', () => { if (snap) draw(); if (location.hash === '#analytics') window.analytics?.show(); });
-  if (location.hash === '#analytics') setTimeout(() => window.analytics?.show(), 0);
   load();
   setInterval(load, POLL);
 })();

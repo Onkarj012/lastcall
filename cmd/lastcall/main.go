@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
-	"lastcall/internal/ledger"
 	"lastcall/internal/opencode"
 	"lastcall/internal/server"
 	"lastcall/internal/state"
@@ -47,7 +46,6 @@ func main() {
 		oc = &opencode.Reader{DB: *ocDB, Plan: *ocPlan}
 	}
 	srv := server.New(*cpaURL, cpa.New(*cpaURL, *keyPath), st, *quotaEvery, oc)
-	srv.Ledger = ledger.New(home)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

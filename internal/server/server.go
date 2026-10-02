@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
-	"lastcall/internal/ledger"
 	"lastcall/internal/opencode"
 	"lastcall/internal/quota"
 	"lastcall/internal/routing"
@@ -30,7 +29,6 @@ const (
 type Server struct {
 	cpaURL     string
 	oc         *opencode.Reader
-	Ledger     *ledger.Ledger
 	ocResult   *quota.Result
 	cpa        *cpa.Client
 	st         *state.Store
@@ -71,18 +69,6 @@ func (s *Server) refreshOpenCode(ctx context.Context) {
 // Run starts the background loops and blocks until ctx ends.
 func (s *Server) Run(ctx context.Context) {
 	s.refreshCreds(ctx) // also starts the first quota sweep once accounts are listed
-	if s.Ledger != nil {
-		go func() {
-			for {
-				s.Ledger.Refresh(ctx) // only re-parses files that changed
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(2 * time.Minute):
-				}
-			}
-		}()
-	}
 	credT := time.NewTicker(credsEvery)
 	quotaT := time.NewTicker(s.quotaEvery)
 	pauseT := time.NewTicker(pauseEvery)

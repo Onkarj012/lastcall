@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
-	"lastcall/internal/ledger"
 	"lastcall/internal/quota"
 	"lastcall/internal/routing"
 	"lastcall/internal/state"
@@ -135,15 +134,6 @@ func firstNonEmpty(ss ...string) string {
 func (s *Server) Handler(ui fs.FS) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/snapshot", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.snapshot()) })
-
-	mux.HandleFunc("GET /api/analytics", func(w http.ResponseWriter, r *http.Request) {
-		if s.Ledger == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": "analytics disabled"})
-			return
-		}
-		q := r.URL.Query()
-		writeJSON(w, http.StatusOK, s.Ledger.Report(q.Get("range"), ledger.Filter{Source: q.Get("source"), Model: q.Get("model"), Project: q.Get("project")}))
-	})
 
 	mux.HandleFunc("POST /api/refresh", s.act(func(ctx context.Context, r *http.Request) (any, error) {
 		return nil, s.forceRefresh(ctx)
