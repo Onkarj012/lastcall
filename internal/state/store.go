@@ -20,19 +20,9 @@ type Pause struct {
 	ResumeAt time.Time `json:"resume_at"`
 }
 
-// Routing remembers what lastcall wrote so it can restore only its own changes.
-// Original holds each credential's priority before lastcall first touched it.
-type Routing struct {
-	Auto     bool           `json:"auto"`
-	Managed  []string       `json:"managed"`
-	Original map[string]int `json:"original"`
-	Written  map[string]int `json:"written"`
-}
-
 type Data struct {
-	Pins    []string         `json:"pins"`
-	Pauses  map[string]Pause `json:"pauses"`
-	Routing Routing          `json:"routing"`
+	Pins   []string         `json:"pins"`
+	Pauses map[string]Pause `json:"pauses"`
 }
 
 type Store struct {
@@ -45,9 +35,8 @@ var defaultPins = []string{"claude", "codex"}
 
 func fresh() Data {
 	return Data{
-		Pins:    defaultPins,
-		Pauses:  map[string]Pause{},
-		Routing: Routing{Managed: []string{"claude", "codex"}, Original: map[string]int{}, Written: map[string]int{}},
+		Pins:   defaultPins,
+		Pauses: map[string]Pause{},
 	}
 }
 
@@ -65,12 +54,6 @@ func Open(path string) (*Store, error) {
 	}
 	if s.data.Pauses == nil {
 		s.data.Pauses = map[string]Pause{}
-	}
-	if s.data.Routing.Original == nil {
-		s.data.Routing.Original = map[string]int{}
-	}
-	if s.data.Routing.Written == nil {
-		s.data.Routing.Written = map[string]int{}
 	}
 	return s, nil
 }

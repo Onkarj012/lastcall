@@ -12,7 +12,6 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/quota"
-	"lastcall/internal/routing"
 	"lastcall/internal/state"
 )
 
@@ -34,11 +33,11 @@ type accountView struct {
 	Supported      bool          `json:"supported"`
 	Quota          *quota.Result `json:"quota,omitempty"`
 	Pause          *state.Pause  `json:"pause,omitempty"`
-	Route          *routing.Slot `json:"route,omitempty"`
 }
 
 type snapshot struct {
 	Now        time.Time     `json:"now"`
+	CPAURL     string        `json:"cpa_url"`
 	CredsAt    time.Time     `json:"creds_at"`
 	QuotaAt    time.Time     `json:"quota_at"`
 	QuotaEvery int           `json:"quota_every_s"`
@@ -46,25 +45,9 @@ type snapshot struct {
 	Error      string        `json:"error,omitempty"`
 	Accounts   []accountView `json:"accounts"`
 	Pins       []string      `json:"pins"`
-	Routing    routingView   `json:"routing"`
-}
-
-type routingView struct {
-	Auto    bool           `json:"auto"`
-	Managed []string       `json:"managed"`
-	Applied bool           `json:"applied"`
-	Error   string         `json:"error,omitempty"`
-	Pools   []routing.Pool `json:"pools"`
 }
 
 func (s *Server) snapshot() snapshot {
-	pools := s.plan()
-	slots := map[string]routing.Slot{}
-	for _, p := range pools {
-		for _, sl := range p.Slots {
-			slots[sl.Name] = sl
-		}
-	}
 	d := s.st.Snapshot()
 
 	s.mu.Lock()
@@ -73,14 +56,11 @@ func (s *Server) snapshot() snapshot {
 	if p := s.cpa.AuthProblem(); p != "" {
 		errMsg = p
 	}
-	if pools == nil {
-		pools = []routing.Pool{}
-	}
 	out := snapshot{
 		Accounts: []accountView{},
+		CPAURL:   s.cpaURL,
 		Now:      time.Now(), CredsAt: s.credsAt, QuotaAt: s.quotaAt, QuotaEvery: int(s.quotaEvery.Seconds()),
 		Refreshing: s.refreshing, Error: errMsg, Pins: d.Pins,
-		Routing: routingView{Auto: d.Routing.Auto, Managed: d.Routing.Managed, Applied: len(d.Routing.Written) > 0, Error: s.routeErr, Pools: pools},
 	}
 	for _, c := range s.creds {
 		v := accountView{
@@ -101,10 +81,6 @@ func (s *Server) snapshot() snapshot {
 		if p, ok := d.Pauses[c.Name]; ok {
 			p := p
 			v.Pause = &p
-		}
-		if sl, ok := slots[c.Name]; ok {
-			sl := sl
-			v.Route = &sl
 		}
 		out.Accounts = append(out.Accounts, v)
 	}
@@ -136,6 +112,9 @@ func (s *Server) Handler(ui fs.FS) http.Handler {
 			return nil, s.setDisabled(ctx, name, true)
 		case "enable", "resume":
 			return nil, s.setDisabled(ctx, name, false)
+		case "reset":
+			msg, err := s.useReset(ctx, name)
+			return map[string]string{"message": msg}, err
 		case "pause":
 			var body struct {
 				Minutes int    `json:"minutes"`
@@ -167,31 +146,6 @@ func (s *Server) Handler(ui fs.FS) http.Handler {
 				d.Pins = append(d.Pins, body.Provider)
 			}
 		})
-	}))
-
-	mux.HandleFunc("POST /api/routing/apply", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		n, err := s.applyRouting(ctx)
-		return map[string]int{"changed": n}, err
-	}))
-	mux.HandleFunc("POST /api/routing/restore", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		n, skipped, err := s.restoreRouting(ctx)
-		return map[string]any{"restored": n, "skipped": skipped}, err
-	}))
-	mux.HandleFunc("POST /api/routing/auto", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		var body struct {
-			On bool `json:"on"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			return nil, badRequest("auto needs {on}")
-		}
-		if err := s.st.Update(func(d *state.Data) { d.Routing.Auto = body.On }); err != nil {
-			return nil, err
-		}
-		if body.On {
-			_, err := s.applyRouting(ctx)
-			return nil, err
-		}
-		return nil, nil
 	}))
 
 	mux.HandleFunc("POST /api/oauth/start", s.act(func(ctx context.Context, r *http.Request) (any, error) {

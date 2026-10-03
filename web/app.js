@@ -35,6 +35,7 @@
     },
     pct: x => `${Math.round(x * 100)}%`,
     clock: t => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+    day: t => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     time: t => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
   };
   const until = (t, now) => t ? fmt.in(new Date(t) - now) : '—';
@@ -93,23 +94,20 @@
     return p.shades[i % p.shades.length];
   };
 
-  // Primary windows on a card: the first 5h and first weekly limit; everything else is "extra".
-  function split(a) {
+  // Every card shows exactly two limit rows: the tightest 5-hour window, then weekly
+  // (or monthly) ones. Model-specific extras stay off the card. Missing rows are null.
+  function slots(a) {
     const ws = a.quota?.windows ?? [];
-    const five = ws.filter(w => w.kind === '5h');
-    const week = ws.filter(w => w.kind === 'week');
-    const main = [];
-    if (five.length) main.push(five.reduce((x, y) => (y.left < x.left ? y : x)));
-    if (week.length) main.push(week[0]);
-    if (!main.length) main.push(...ws.slice(0, 2));
-    return { main, extra: ws.filter(w => !main.includes(w)) };
+    const five = ws.filter(w => w.kind === '5h').reduce((x, y) => (!x || y.left < x.left ? y : x), null);
+    const out = [five, ...ws.filter(w => w.kind === 'week'), ...ws.filter(w => w.kind === 'month')].filter(Boolean);
+    return [out[0] ?? null, out[1] ?? null];
   }
 
   // Sum the same-named limit across a provider's accounts: two accounts make a 200% pool.
   function pool(provider) {
     const accts = snap.accounts.filter(a => a.provider === provider);
     const pick = kind => {
-      const first = accts.map(a => split(a).main.find(w => w.kind === kind)).find(Boolean);
+      const first = accts.map(a => slots(a).find(w => w?.kind === kind)).find(Boolean);
       if (!first) return null;
       const name = kind === '5h' ? null : first.name;
       const parts = accts.map(a => {
@@ -133,8 +131,6 @@
     drawStatus(now);
     drawTotals(now);
     drawSubs(now);
-    drawActivity();
-    drawRouting();
     $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.length} credentials · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
   }
 
@@ -178,40 +174,56 @@
     }).join('');
   }
 
-  function badges(a, now) {
-    const b = [];
-    if (a.pause) b.push(`<span class="badge warn">paused · back ${fmt.time(a.pause.resume_at)}</span>`);
-    else if (a.disabled) b.push(`<span class="badge bad">disabled</span>`);
-    if (a.unavailable && !a.disabled) b.push(`<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`);
-    if (a.status === 'error' && a.status_message) b.push(`<span class="badge bad" title="${esc(a.status_message)}">error</span>`);
-    if (a.route?.rank === 1 && snap.routing.applied) b.push(`<span class="badge route">routing first</span>`);
-    else if (a.route?.rank) b.push(`<span class="badge route">${snap.routing.applied ? '' : 'suggested '}#${a.route.rank}</span>`);
-    if (a.priority) b.push(`<span class="badge" title="CPA priority">prio ${a.priority}</span>`);
-    return b.join('');
+  // One status badge per card, most important state wins.
+  function status(a, now) {
+    if (a.pause) return `<span class="badge warn">paused · back ${fmt.time(a.pause.resume_at)}</span>`;
+    if (a.disabled) return `<span class="badge bad">disabled</span>`;
+    if (a.unavailable) return `<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`;
+    if (a.status === 'error') return `<span class="badge bad" title="${esc(a.status_message)}">error</span>`;
+    if (a.quota?.error) return `<span class="badge warn" title="${esc(a.quota.error)}">quota stale</span>`;
+    return `<span class="badge ok">active</span>`;
+  }
+
+  // Lay provider groups into columns (each group stays in one column, shortest column
+  // first) and give every card an explicit cell, so all rows share one height.
+  function layout(groups) {
+    const width = $('subs').clientWidth || 1200;
+    const n = Math.max(1, Math.min(groups.length, Math.floor((width + 14) / (360 + 14))));
+    const heights = Array(n).fill(0), cells = [];
+    for (const g of groups) {
+      const c = heights.indexOf(Math.min(...heights));
+      g.forEach((a, i) => cells.push({ a, col: c + 1, row: heights[c] + i + 1 }));
+      heights[c] += g.length;
+    }
+    return { n, cells };
+  }
+
+  function limRow(w, shade, now) {
+    if (!w) return `<div class="lim empty"><div class="t"><span>—</span><span class="v"></span></div><div class="track"></div></div>`;
+    return `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
+      <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`;
   }
 
   function drawSubs(now) {
     const order = [...snap.accounts].sort((x, y) => (snap.pins.includes(y.provider) - snap.pins.includes(x.provider)));
-    $('subs').innerHTML = order.map(a => {
+    const groups = [...new Set(order.map(a => a.provider))].map(id => order.filter(a => a.provider === id));
+    const { n, cells } = layout(groups);
+    $('subs').style.setProperty('--cols', n);
+    $('subs').innerHTML = cells.map(({ a, col, row }) => {
       const p = prov(a.provider), shade = shadeOf(a), pinned = snap.pins.includes(a.provider);
-      const { main, extra } = split(a);
-      const q = a.quota;
-      const meta = [
-        ...extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`),
-        ...(q?.meta ?? []).map(([k, v]) => `${esc(k)} ${esc(v)}`),
-        `${a.success.toLocaleString()} ok · ${a.failed} failed`,
-      ];
-      return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" data-name="${esc(a.name)}">
+      const q = a.quota, rs = q?.resets;
+      const renews = (q?.meta ?? []).find(([k]) => k === 'renews');
+      const foot = [renews && `renews ${esc(renews[1])}`, q?.at ? `read ${fmt.ago(now - new Date(q.at))}` : !a.supported ? 'quota not supported' : a.disabled ? 'not read while disabled' : 'quota pending…'].filter(Boolean);
+      return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" style="grid-column:${col};grid-row:${row}" data-name="${esc(a.name)}">
         <div class="top"><div class="who">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
           <button class="pin ${pinned ? 'on' : ''}" data-pin="${a.provider}" title="${pinned ? 'Unpin' : 'Pin'} ${p.name}">${PIN(pinned)}</button>
           <button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button></div>
-        <div class="badges">${badges(a, now)}</div>
-        ${!a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
-          : !q ? `<div class="meta">${a.disabled ? 'disabled; quota not fetched' : 'quota pending…'}</div>`
-          : main.map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
-              <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`).join('')}
-        ${q?.error ? `<div class="qerr" title="${esc(q.error)}">quota: ${esc(q.error.slice(0, 140))}</div>` : ''}
-        <div class="meta">${meta.join(' · ')}${q?.at ? ` · read ${fmt.ago(now - new Date(q.at))}` : ''}</div>
+        <div class="badges">${status(a, now)}</div>
+        ${slots(a).map(w => limRow(w, shade, now)).join('')}
+        <div class="foot">
+          ${rs ? `<button class="rbtn" data-resets="${esc(a.name)}">↺ ${rs.left} reset${rs.left === 1 ? '' : 's'}</button>` : `<span class="rnone">no banked resets</span>`}
+          <span class="meta">${foot.join(' · ')}</span>
+        </div>
         ${openMenu === a.name ? menu(a) : ''}
       </div>`;
     }).join('') || `<div class="meta">No credentials yet.</div>`;
@@ -233,56 +245,28 @@
     </div>`;
   }
 
-  // Requests per 10-minute bucket over the last 200 minutes, from CPA's own counters.
-  function drawActivity() {
-    const by = {};
-    let ok = 0, failed = 0, life = 0, lifeFail = 0;
-    for (const a of snap.accounts) {
-      life += a.success; lifeFail += a.failed;
-      const r = a.recent ?? [];
-      by[a.provider] ??= Array(r.length).fill(0);
-      r.forEach((b, i) => { by[a.provider][i] = (by[a.provider][i] ?? 0) + b.success + b.failed; ok += b.success; failed += b.failed; });
-    }
-    $('stats').innerHTML = `<div><b>${(ok + failed).toLocaleString()}</b><span>requests · 200 min</span></div>
-      <div><b>${failed}</b><span>failed · 200 min</span></div>
-      <div><b>${life ? ((life / (life + lifeFail)) * 100).toFixed(1) : '—'}%</b><span>success since CPA start</span></div>`;
-
-    const svg = $('spark'), W = svg.clientWidth || 500, H = 64, R = 70;
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    const series = Object.entries(by).filter(([, xs]) => xs.length > 1);
-    const max = Math.max(4, ...series.flatMap(([, xs]) => xs));
-    let g = '', last = -Infinity;
-    const ends = [];
-    for (const [k, xs] of series) {
-      const p = prov(k), dim = !snap.pins.includes(k);
-      const pts = xs.map((v, i) => [(i / (xs.length - 1)) * (W - R), (H - 6) * (1 - v / max) + 3]);
-      g += `<polyline points="${pts.map(q => q.join(',')).join(' ')}" fill="none" stroke="${dim ? '#36312d' : p.color}" stroke-width="1.4"/>`;
-      if (!dim) ends.push({ p, y: pts.at(-1)[1], n: xs.reduce((s, v) => s + v, 0) });
-    }
-    ends.sort((a, b) => a.y - b.y);
-    for (const e of ends) {
-      const y = Math.min(H - 4, Math.max(e.y, last + 13)); last = y;
-      g += `<svg x="${W - R + 8}" y="${y - 6}" width="11" height="11" viewBox="0 0 24 24" fill="${e.p.color}">${LOGOS[e.p.logo] ?? ''}</svg>
-        <text x="${W - R + 23}" y="${y + 4}" fill="${e.p.color}" font-family="DM Sans" font-size="11" font-weight="600">${e.n}</text>`;
-    }
-    svg.innerHTML = g;
-  }
-
-  function drawRouting() {
-    const r = snap.routing;
-    const lbl = name => short(snap.accounts.find(a => a.name === name)?.label ?? name);
-    const pools = r.pools.map(pl => {
-      const p = prov(pl.provider);
-      if (pl.frozen) return `<div class="pool">${p.name}: <span class="low">paused, ${esc(pl.frozen)}</span></div>`;
-      const ranked = pl.slots.filter(s => s.rank).map(s => lbl(s.name));
-      const skipped = pl.slots.filter(s => !s.rank).map(s => `${lbl(s.name)} (${esc(s.reason)})`);
-      return `<div class="pool" title="${esc(skipped.join(', '))}">${p.name}: ${ranked.join(' → ') || 'nothing usable'}${skipped.length ? ` <span class="mute">· skip ${skipped.join(', ')}</span>` : ''}</div>`;
-    }).join('');
-    $('route').innerHTML = `<div class="hd"><b>Reset-first routing</b>
-        <span class="toggle ${r.auto ? 'on' : ''}" data-auto="${r.auto ? 0 : 1}" title="Re-apply after every quota sweep"><i></i>auto</span>
-        <span class="btns"><button class="btn primary" data-route="apply">Apply</button>${r.applied ? '<button class="btn" data-route="restore">Restore</button>' : ''}</span></div>
-      ${pools || '<div class="pool">No managed providers.</div>'}
-      <div class="note">${r.error ? `<span class="out">${esc(r.error)}</span>` : r.applied ? 'Priorities written to CPA. Restore puts back the originals.' : 'Dry run: nothing written to CPA until you press Apply.'}</div>`;
+  // ---- resets modal: every banked reset with its own expiry, and the button to spend one ----
+  function resetsModal(name) {
+    const a = snap.accounts.find(x => x.name === name), rs = a?.quota?.resets;
+    if (!rs) return;
+    const p = prov(a.provider), now = Date.now();
+    const scrim = document.createElement('div');
+    scrim.className = 'scrim';
+    scrim.innerHTML = `<div class="modal" style="--c:${shadeOf(a)}"><h3>${logo(p.logo, shadeOf(a), 16)} ${p.name} · ${short(a.label)} · ${rs.left} banked reset${rs.left === 1 ? '' : 's'}</h3>
+      <div class="rlist">${(rs.items ?? []).map(it => `<div class="ritem"><div><b>${esc(it.title || 'Usage-limit reset')}</b>${it.count > 1 ? ` <span class="mute">×${it.count}</span>` : ''}</div>
+        <div class="mono">${it.expires_at ? `expires ${fmt.clock(it.expires_at)} · in ${until(it.expires_at, now)}` : 'no expiry given'}</div></div>`).join('') || `<div class="mute">The provider reports ${rs.left} but didn't list them.</div>`}</div>
+      <div class="mute" style="font-size:12.5px">${rs.clears ? `Using one clears your ${esc(rs.clears)} limits right away. ` : ''}${rs.note ? `<span class="out">${esc(rs.note)}</span>` : ''}</div>
+      <div class="row"><button class="btn" data-close>Close</button><button class="btn primary" data-use ${rs.usable ? '' : 'disabled'}>Use one reset</button></div></div>`;
+    const close = () => scrim.remove();
+    scrim.addEventListener('click', e => {
+      if (e.target === scrim || e.target.closest('[data-close]')) return close();
+      if (e.target.closest('[data-use]')) {
+        if (!confirm(`Spend 1 of ${rs.left} banked resets on ${p.name} · ${a.label}? This can't be undone.`)) return;
+        close();
+        run(null, async () => toast((await api('POST', `/api/accounts/${encodeURIComponent(name)}/reset`)).message || 'Limits reset'));
+      }
+    });
+    document.body.append(scrim);
   }
 
   // ---- login modal ----
@@ -332,6 +316,8 @@
     const t = e.target;
     const pin = t.closest('[data-pin]');
     if (pin) return run(null, () => api('POST', '/api/pins', { provider: pin.dataset.pin, pinned: !snap.pins.includes(pin.dataset.pin) }));
+    const rb = t.closest('[data-resets]');
+    if (rb) return resetsModal(rb.dataset.resets);
     const m = t.closest('[data-menu]');
     if (m) { openMenu = openMenu === m.dataset.menu ? null : m.dataset.menu; return draw(); }
     const act = t.closest('[data-act]');
@@ -351,18 +337,12 @@
         case 'relogin': draw(); return loginModal(act.dataset.provider);
       }
     }
-    const rt = t.closest('[data-route]');
-    if (rt) {
-      if (rt.dataset.route === 'apply') return run('Priorities applied', () => api('POST', '/api/routing/apply'));
-      return run('Original priorities restored', () => api('POST', '/api/routing/restore'));
-    }
-    const auto = t.closest('[data-auto]');
-    if (auto) return run(auto.dataset.auto === '1' ? 'Auto routing on' : 'Auto routing off', () => api('POST', '/api/routing/auto', { on: auto.dataset.auto === '1' }));
     if (openMenu && !t.closest('.menu')) { openMenu = null; draw(); }
   });
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
   $('add').addEventListener('click', () => loginModal());
 
+  addEventListener('resize', () => snap && drawSubs(Date.now()));
   load();
   setInterval(load, POLL);
 })();

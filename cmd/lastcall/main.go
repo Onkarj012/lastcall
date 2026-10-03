@@ -38,7 +38,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("state: %v", err)
 	}
-	srv := server.New(cpa.New(*cpaURL, *keyPath), st, *quotaEvery)
+	srv := server.New(*cpaURL, cpa.New(*cpaURL, *keyPath), st, *quotaEvery)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

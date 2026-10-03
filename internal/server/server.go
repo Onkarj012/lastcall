@@ -1,5 +1,5 @@
 // Package server is lastcall's backend: it polls CPA, keeps the latest snapshot,
-// runs timed pauses and the reset-first router, and serves the web UI.
+// runs timed pauses, and serves the web UI.
 package server
 
 import (
@@ -8,13 +8,11 @@ import (
 	"fmt"
 	"log"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/quota"
-	"lastcall/internal/routing"
 	"lastcall/internal/state"
 )
 
@@ -26,31 +24,31 @@ const (
 )
 
 type Server struct {
+	cpaURL     string
 	cpa        *cpa.Client
 	st         *state.Store
 	quotaEvery time.Duration
 
-	mu         sync.Mutex
-	creds      []cpa.Credential
-	credsAt    time.Time
-	credsErr   string
-	quota      map[string]quota.Result // by credential name
-	quotaAt    time.Time
-	lastForced time.Time
-	refreshing bool
-	routeErr   string
+	mu          sync.Mutex
+	creds       []cpa.Credential
+	credsAt     time.Time
+	credsErr    string
+	quota       map[string]quota.Result // by credential name
+	quotaAt     time.Time
+	lastForced  time.Time
+	refreshing  bool
+	sweepQueued bool
 
 	quotaMu sync.Mutex // one quota sweep at a time
 }
 
-func New(c *cpa.Client, st *state.Store, quotaEvery time.Duration) *Server {
-	return &Server{cpa: c, st: st, quotaEvery: quotaEvery, quota: map[string]quota.Result{}}
+func New(cpaURL string, c *cpa.Client, st *state.Store, quotaEvery time.Duration) *Server {
+	return &Server{cpaURL: cpaURL, cpa: c, st: st, quotaEvery: quotaEvery, quota: map[string]quota.Result{}}
 }
 
 // Run starts the background loops and blocks until ctx ends.
 func (s *Server) Run(ctx context.Context) {
-	s.refreshCreds(ctx)
-	go s.refreshQuota(ctx)
+	s.refreshCreds(ctx) // also starts the first quota sweep once accounts are listed
 	credT := time.NewTicker(credsEvery)
 	quotaT := time.NewTicker(s.quotaEvery)
 	pauseT := time.NewTicker(pauseEvery)
@@ -89,6 +87,11 @@ func (s *Server) refreshCreds(ctx context.Context) {
 		return creds[i].Name < creds[j].Name
 	})
 	s.creds, s.credsAt, s.credsErr = creds, time.Now(), ""
+	// First successful listing (e.g. the key file just appeared): don't wait for the timer.
+	if s.quotaAt.IsZero() && !s.refreshing && len(creds) > 0 && !s.sweepQueued {
+		s.sweepQueued = true
+		go s.refreshQuota(context.WithoutCancel(ctx))
+	}
 }
 
 // refreshQuota sweeps every supported, enabled account. Disabled accounts keep
@@ -99,6 +102,7 @@ func (s *Server) refreshQuota(ctx context.Context) {
 	s.mu.Lock()
 	creds := append([]cpa.Credential(nil), s.creds...)
 	s.refreshing = true
+	s.sweepQueued = false
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -140,12 +144,6 @@ func (s *Server) refreshQuota(ctx context.Context) {
 		s.quotaAt = time.Now()
 		s.mu.Unlock()
 	}
-
-	if s.st.Snapshot().Routing.Auto {
-		if _, err := s.applyRouting(ctx); err != nil {
-			log.Printf("auto routing: %v", err)
-		}
-	}
 }
 
 func (s *Server) credByName(name string) (cpa.Credential, bool) {
@@ -169,12 +167,14 @@ func (s *Server) pause(ctx context.Context, name string, until time.Time) error 
 	if !until.After(time.Now()) {
 		return errors.New("resume time must be in the future")
 	}
-	if err := s.cpa.SetDisabled(ctx, c.Name, c.AuthIndex, true); err != nil {
-		return err
-	}
+	// Save the timer first: a disabled account with no saved timer would never come back.
 	if err := s.st.Update(func(d *state.Data) {
 		d.Pauses[name] = state.Pause{Name: name, PausedAt: time.Now(), ResumeAt: until}
 	}); err != nil {
+		return err
+	}
+	if err := s.cpa.SetDisabled(ctx, c.Name, c.AuthIndex, true); err != nil {
+		_ = s.st.Update(func(d *state.Data) { delete(d.Pauses, name) })
 		return err
 	}
 	s.refreshCreds(ctx)
@@ -217,112 +217,33 @@ func (s *Server) setDisabled(ctx context.Context, name string, disabled bool) er
 	return nil
 }
 
-// ---- routing ----
+// ---- banked resets ----
 
-func (s *Server) plan() []routing.Pool {
-	s.mu.Lock()
-	accts := make([]routing.Account, 0, len(s.creds))
-	for _, c := range s.creds {
-		a := routing.Account{Name: c.Name, Provider: quota.Provider(c.Provider), Disabled: c.Disabled, Unavailable: c.Unavailable}
-		if r, ok := s.quota[c.Name]; ok {
-			r := r
-			a.Quota = &r
-		}
-		accts = append(accts, a)
-	}
-	s.mu.Unlock()
-	return routing.Plan(accts, s.st.Snapshot().Routing.Managed, time.Now())
-}
-
-// applyRouting writes the planned priorities. It records each credential's original
-// priority the first time, and refuses to touch a pool where someone else changed a
-// value lastcall wrote.
-func (s *Server) applyRouting(ctx context.Context) (int, error) {
-	s.refreshCreds(ctx)
-	rt := s.st.Snapshot().Routing
-	changed := 0
-	var problems []string
-	for _, pool := range s.plan() {
-		if pool.Frozen != "" {
-			problems = append(problems, pool.Provider+": "+pool.Frozen)
-			continue
-		}
-		external := ""
-		for _, sl := range pool.Slots {
-			c, ok := s.credByName(sl.Name)
-			if !ok {
-				continue
-			}
-			if w, ok := rt.Written[sl.Name]; ok && c.Priority != w {
-				external = sl.Name
-				break
-			}
-		}
-		if external != "" {
-			problems = append(problems, fmt.Sprintf("%s: priority of %s was changed outside lastcall; restore or fix it first", pool.Provider, external))
-			continue
-		}
-		for _, sl := range pool.Slots {
-			c, ok := s.credByName(sl.Name)
-			if !ok || c.Priority == sl.Priority {
-				continue
-			}
-			if _, seen := rt.Original[sl.Name]; !seen {
-				orig := c.Priority
-				if err := s.st.Update(func(d *state.Data) { d.Routing.Original[sl.Name] = orig }); err != nil {
-					return changed, err
-				}
-			}
-			if err := s.cpa.SetPriority(ctx, c.Name, sl.Priority); err != nil {
-				problems = append(problems, fmt.Sprintf("%s: write %s failed: %v", pool.Provider, sl.Name, err))
-				break // stop this pool; next sweep reconciles from what CPA reports
-			}
-			prio := sl.Priority
-			if err := s.st.Update(func(d *state.Data) { d.Routing.Written[sl.Name] = prio }); err != nil {
-				return changed, err
-			}
-			changed++
-		}
-	}
-	s.refreshCreds(ctx)
-	s.mu.Lock()
-	s.routeErr = strings.Join(problems, "; ")
-	s.mu.Unlock()
-	if len(problems) > 0 {
-		return changed, errors.New(strings.Join(problems, "; "))
-	}
-	return changed, nil
-}
-
-// restoreRouting puts back original priorities, skipping any value someone else changed.
-func (s *Server) restoreRouting(ctx context.Context) (restored int, skipped []string, err error) {
-	s.refreshCreds(ctx)
-	rt := s.st.Snapshot().Routing
-	for name, orig := range rt.Original {
-		c, ok := s.credByName(name)
-		if ok && c.Priority == rt.Written[name] {
-			if err := s.cpa.SetPriority(ctx, c.Name, orig); err != nil {
-				return restored, skipped, err
-			}
-			restored++
-		} else if ok {
-			skipped = append(skipped, name)
-		}
-		if err := s.st.Update(func(d *state.Data) {
-			delete(d.Routing.Original, name)
-			delete(d.Routing.Written, name)
-		}); err != nil {
-			return restored, skipped, err
-		}
-	}
-	if err := s.st.Update(func(d *state.Data) { d.Routing.Auto = false }); err != nil {
-		return restored, skipped, err
+// useReset spends one of the account's banked resets, then re-reads its quota so
+// the card shows the cleared windows and the new count.
+func (s *Server) useReset(ctx context.Context, name string) (string, error) {
+	c, ok := s.credByName(name)
+	if !ok {
+		return "", fmt.Errorf("unknown account %s", name)
 	}
 	s.mu.Lock()
-	s.routeErr = ""
+	r := s.quota[name]
 	s.mu.Unlock()
-	s.refreshCreds(ctx)
-	return restored, skipped, nil
+	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
+	fresh := quota.Fetch(ctx, s.cpa, c)
+	s.mu.Lock()
+	switch {
+	case fresh.Error == "":
+		s.quota[name] = fresh
+	case err == nil:
+		// The spend went through but the re-read failed: the cached count is now wrong,
+		// so drop it until the next sweep rather than offer a reset that may be gone.
+		stale := s.quota[name]
+		stale.Resets = nil
+		s.quota[name] = stale
+	}
+	s.mu.Unlock()
+	return msg, err
 }
 
 // ---- forced refresh ----

@@ -3,13 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>lastcall · Usage</title>
+<title>lastcall</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header class="bar">
   <span class="mark">last<span>call</span></span>
-  <span class="title">Usage</span>
   <div class="right">
     <span class="dot" id="dot"></span><span id="status">Connecting…</span>
     <button class="btn" id="add" title="Log in a new account">+ Account</button>
@@ -17,13 +16,10 @@
   </div>
 </header>
 <div class="banner" id="banner"></div>
-<section class="totals" id="totals"></section>
-<section class="subs"><div class="h">Subscriptions <small>pinned providers first · ⋯ for pause, disable, re-login</small></div><div class="grid" id="subs"></div></section>
-<section class="foot2">
-  <div class="stats" id="stats"></div>
-  <svg class="spark" id="spark"></svg>
-  <div class="route-box" id="route"></div>
-</section>
+<main id="v-usage">
+  <section class="totals" id="totals"></section>
+  <section class="subs"><div class="h">Subscriptions</div><div class="grid" id="subs"></div></section>
+</main>
 <div class="stamp"><span><b>◆ lastcall</b> usage snapshot</span><span id="stamp"></span></div>
 <script src="logos.js"></script>
 <script src="app.js"></script>
