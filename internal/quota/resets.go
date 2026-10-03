@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,15 +16,28 @@ import (
 // Resets is the banked usage-limit resets an account can spend on demand.
 // Claude calls these grants (program "cedar_ember"); Codex calls them reset credits.
 type Resets struct {
-	Left      int        `json:"left"`
-	Label     string     `json:"label,omitempty"`
-	Clears    string     `json:"clears,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"` // of the reset that would be used next
-	Usable    bool       `json:"usable"`
-	Note      string     `json:"note,omitempty"` // why it can't be used right now
+	Left   int         `json:"left"`
+	Clears string      `json:"clears,omitempty"`
+	Usable bool        `json:"usable"`
+	Note   string      `json:"note,omitempty"` // why it can't be used right now
+	Items  []ResetItem `json:"items"`          // soonest expiry first
 
 	grant string // Claude: grant id to claim
 	org   string // Claude: organization uuid the claim goes to
+}
+
+// ResetItem is one grant or credit. Claude grants can hold more than one reset.
+type ResetItem struct {
+	Title     string     `json:"title"`
+	Count     int        `json:"count"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+func sortItems(items []ResetItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i].ExpiresAt, items[j].ExpiresAt
+		return a != nil && (b == nil || a.Before(*b))
+	})
 }
 
 // ---- Claude: cedar_ember block of /api/oauth/usage?cedar_ember=1 ----
@@ -53,8 +67,12 @@ func claudeResets(raw json.RawMessage, org string) *Resets {
 	}
 	r := &Resets{org: org}
 	for _, g := range st.Grants {
-		r.Left += g.ResetsLeft
+		if g.ResetsLeft > 0 {
+			r.Left += g.ResetsLeft
+			r.Items = append(r.Items, ResetItem{Title: g.Label, Count: g.ResetsLeft, ExpiresAt: instant(g.EndsAt)})
+		}
 	}
+	sortItems(r.Items)
 	if !st.Eligible {
 		if r.Left == 0 {
 			return nil
@@ -69,8 +87,7 @@ func claudeResets(raw json.RawMessage, org string) *Resets {
 		if st.NextGrantID == nil || g.ID != *st.NextGrantID {
 			continue
 		}
-		r.grant, r.Label, r.ExpiresAt = g.ID, g.Label, instant(g.EndsAt)
-		r.Clears = clearsText(g.Clears)
+		r.grant, r.Clears = g.ID, clearsText(g.Clears)
 		switch {
 		case g.Paused:
 			r.Note = "grant paused"
@@ -143,11 +160,9 @@ func codexResets(ctx context.Context, c Caller, cred cpa.Credential) (*Resets, e
 		if cr.Status != "available" || (cr.Supported != nil && !*cr.Supported) {
 			continue
 		}
-		// The backend picks which credit to spend; show the one that runs out first.
-		if t := instant(cr.ExpiresAt); t != nil && (r.ExpiresAt == nil || t.Before(*r.ExpiresAt)) {
-			r.ExpiresAt, r.Label = t, cr.Title
-		}
+		r.Items = append(r.Items, ResetItem{Title: cr.Title, Count: 1, ExpiresAt: instant(cr.ExpiresAt)})
 	}
+	sortItems(r.Items)
 	return r, nil
 }
 

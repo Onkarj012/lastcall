@@ -94,23 +94,20 @@
     return p.shades[i % p.shades.length];
   };
 
-  // Primary windows on a card: the first 5h and first weekly limit; everything else is "extra".
-  function split(a) {
+  // Every card shows exactly two limit rows: the tightest 5-hour window, then weekly
+  // (or monthly) ones. Model-specific extras stay off the card. Missing rows are null.
+  function slots(a) {
     const ws = a.quota?.windows ?? [];
-    const five = ws.filter(w => w.kind === '5h');
-    const week = ws.filter(w => w.kind === 'week');
-    const main = [];
-    if (five.length) main.push(five.reduce((x, y) => (y.left < x.left ? y : x)));
-    if (week.length) main.push(week[0]);
-    if (!main.length) main.push(...ws.slice(0, 2));
-    return { main, extra: ws.filter(w => !main.includes(w)) };
+    const five = ws.filter(w => w.kind === '5h').reduce((x, y) => (!x || y.left < x.left ? y : x), null);
+    const out = [five, ...ws.filter(w => w.kind === 'week'), ...ws.filter(w => w.kind === 'month')].filter(Boolean);
+    return [out[0] ?? null, out[1] ?? null];
   }
 
   // Sum the same-named limit across a provider's accounts: two accounts make a 200% pool.
   function pool(provider) {
     const accts = snap.accounts.filter(a => a.provider === provider);
     const pick = kind => {
-      const first = accts.map(a => split(a).main.find(w => w.kind === kind)).find(Boolean);
+      const first = accts.map(a => slots(a).find(w => w?.kind === kind)).find(Boolean);
       if (!first) return null;
       const name = kind === '5h' ? null : first.name;
       const parts = accts.map(a => {
@@ -177,47 +174,59 @@
     }).join('');
   }
 
-  function badges(a, now) {
-    const b = [];
-    if (a.pause) b.push(`<span class="badge warn">paused · back ${fmt.time(a.pause.resume_at)}</span>`);
-    else if (a.disabled) b.push(`<span class="badge bad">disabled</span>`);
-    if (a.unavailable && !a.disabled) b.push(`<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`);
-    if (a.status === 'error' && a.status_message) b.push(`<span class="badge bad" title="${esc(a.status_message)}">error</span>`);
-    const rs = a.quota?.resets;
-    if (rs) {
-      const tip = [rs.label, rs.clears && `clears ${rs.clears}`, rs.note].filter(Boolean).join(' · ');
-      b.push(`<span class="badge reset ${rs.usable ? '' : 'idle'}" title="${esc(tip)}">↺ ${rs.left} reset${rs.left === 1 ? '' : 's'}${rs.expires_at ? ` · use by ${fmt.day(rs.expires_at)}` : ''}</span>`);
+  // One status badge per card, most important state wins.
+  function status(a, now) {
+    if (a.pause) return `<span class="badge warn">paused · back ${fmt.time(a.pause.resume_at)}</span>`;
+    if (a.disabled) return `<span class="badge bad">disabled</span>`;
+    if (a.unavailable) return `<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`;
+    if (a.status === 'error') return `<span class="badge bad" title="${esc(a.status_message)}">error</span>`;
+    if (a.quota?.error) return `<span class="badge warn" title="${esc(a.quota.error)}">quota stale</span>`;
+    return `<span class="badge ok">active</span>`;
+  }
+
+  // Lay provider groups into columns (each group stays in one column, shortest column
+  // first) and give every card an explicit cell, so all rows share one height.
+  function layout(groups) {
+    const width = $('subs').clientWidth || 1200;
+    const n = Math.max(1, Math.min(groups.length, Math.floor((width + 14) / (360 + 14))));
+    const heights = Array(n).fill(0), cells = [];
+    for (const g of groups) {
+      const c = heights.indexOf(Math.min(...heights));
+      g.forEach((a, i) => cells.push({ a, col: c + 1, row: heights[c] + i + 1 }));
+      heights[c] += g.length;
     }
-    return b.join('');
+    return { n, cells };
+  }
+
+  function limRow(w, shade, now) {
+    if (!w) return `<div class="lim empty"><div class="t"><span>—</span><span class="v"></span></div><div class="track"></div></div>`;
+    return `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
+      <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`;
   }
 
   function drawSubs(now) {
     const order = [...snap.accounts].sort((x, y) => (snap.pins.includes(y.provider) - snap.pins.includes(x.provider)));
-    // One column per provider, its accounts stacked.
-    const cols = [...new Set(order.map(a => a.provider))].map(id => order.filter(a => a.provider === id));
-    $('subs').innerHTML = cols.map(col => `<div class="col">${col.map(a => {
+    const groups = [...new Set(order.map(a => a.provider))].map(id => order.filter(a => a.provider === id));
+    const { n, cells } = layout(groups);
+    $('subs').style.setProperty('--cols', n);
+    $('subs').innerHTML = cells.map(({ a, col, row }) => {
       const p = prov(a.provider), shade = shadeOf(a), pinned = snap.pins.includes(a.provider);
-      const { main, extra } = split(a);
-      const q = a.quota;
-      const meta = [
-        ...extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`),
-        ...(q?.meta ?? []).map(([k, v]) => `${esc(k)} ${esc(v)}`),
-        `${a.success.toLocaleString()} ok · ${a.failed} failed`,
-      ];
-      return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" data-name="${esc(a.name)}">
+      const q = a.quota, rs = q?.resets;
+      const renews = (q?.meta ?? []).find(([k]) => k === 'renews');
+      const foot = [renews && `renews ${esc(renews[1])}`, q?.at ? `read ${fmt.ago(now - new Date(q.at))}` : !a.supported ? 'quota not supported' : a.disabled ? 'not read while disabled' : 'quota pending…'].filter(Boolean);
+      return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" style="grid-column:${col};grid-row:${row}" data-name="${esc(a.name)}">
         <div class="top"><div class="who">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
           <button class="pin ${pinned ? 'on' : ''}" data-pin="${a.provider}" title="${pinned ? 'Unpin' : 'Pin'} ${p.name}">${PIN(pinned)}</button>
           <button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button></div>
-        <div class="badges">${badges(a, now)}</div>
-        ${!a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
-          : !q ? `<div class="meta">${a.disabled ? 'disabled; quota not fetched' : 'quota pending…'}</div>`
-          : main.map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
-              <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`).join('')}
-        ${q?.error ? `<div class="qerr" title="${esc(q.error)}">quota: ${esc(q.error.slice(0, 140))}</div>` : ''}
-        <div class="meta">${meta.join(' · ')}${q?.at ? ` · read ${fmt.ago(now - new Date(q.at))}` : ''}</div>
+        <div class="badges">${status(a, now)}</div>
+        ${slots(a).map(w => limRow(w, shade, now)).join('')}
+        <div class="foot">
+          ${rs ? `<button class="rbtn" data-resets="${esc(a.name)}">↺ ${rs.left} reset${rs.left === 1 ? '' : 's'}</button>` : `<span class="rnone">no banked resets</span>`}
+          <span class="meta">${foot.join(' · ')}</span>
+        </div>
         ${openMenu === a.name ? menu(a) : ''}
       </div>`;
-    }).join('')}</div>`).join('') || `<div class="meta">No credentials yet.</div>`;
+    }).join('') || `<div class="meta">No credentials yet.</div>`;
   }
 
   function menu(a) {
@@ -230,11 +239,34 @@
       <button data-act="pause" data-min="120" data-name="${n}" ${a.disabled ? 'disabled' : ''}>Pause 2 hours</button>
       <button data-act="pause" data-until="5h" data-name="${n}" ${a.disabled || !five ? 'disabled' : ''}>Pause until 5-hour reset</button>
       <button data-act="pause" data-until="week" data-name="${n}" ${a.disabled || !week ? 'disabled' : ''}>Pause until weekly reset</button>
-      ${a.quota?.resets ? `<hr><button data-act="reset" data-name="${n}" ${a.quota.resets.usable ? '' : 'disabled'} title="${esc(a.quota.resets.note ?? '')}">Use a banked reset (${a.quota.resets.left} left)…</button>` : ''}
       <hr>
       ${a.disabled ? `<button data-act="enable" data-name="${n}">Enable</button>` : `<button class="danger" data-act="disable" data-name="${n}">Disable</button>`}
       <button data-act="relogin" data-provider="${esc(a.provider)}">Re-login ${prov(a.provider).name}…</button>
     </div>`;
+  }
+
+  // ---- resets modal: every banked reset with its own expiry, and the button to spend one ----
+  function resetsModal(name) {
+    const a = snap.accounts.find(x => x.name === name), rs = a?.quota?.resets;
+    if (!rs) return;
+    const p = prov(a.provider), now = Date.now();
+    const scrim = document.createElement('div');
+    scrim.className = 'scrim';
+    scrim.innerHTML = `<div class="modal" style="--c:${shadeOf(a)}"><h3>${logo(p.logo, shadeOf(a), 16)} ${p.name} · ${short(a.label)} · ${rs.left} banked reset${rs.left === 1 ? '' : 's'}</h3>
+      <div class="rlist">${rs.items.map(it => `<div class="ritem"><div><b>${esc(it.title || 'Usage-limit reset')}</b>${it.count > 1 ? ` <span class="mute">×${it.count}</span>` : ''}</div>
+        <div class="mono">${it.expires_at ? `expires ${fmt.clock(it.expires_at)} · in ${until(it.expires_at, now)}` : 'no expiry given'}</div></div>`).join('') || `<div class="mute">The provider reports ${rs.left} but didn't list them.</div>`}</div>
+      <div class="mute" style="font-size:12.5px">${rs.clears ? `Using one clears your ${esc(rs.clears)} limits right away. ` : ''}${rs.note ? `<span class="out">${esc(rs.note)}</span>` : ''}</div>
+      <div class="row"><button class="btn" data-close>Close</button><button class="btn primary" data-use ${rs.usable ? '' : 'disabled'}>Use one reset</button></div></div>`;
+    const close = () => scrim.remove();
+    scrim.addEventListener('click', e => {
+      if (e.target === scrim || e.target.closest('[data-close]')) return close();
+      if (e.target.closest('[data-use]')) {
+        if (!confirm(`Spend 1 of ${rs.left} banked resets on ${p.name} · ${a.label}? This can't be undone.`)) return;
+        close();
+        run(null, async () => toast((await api('POST', `/api/accounts/${encodeURIComponent(name)}/reset`)).message || 'Limits reset'));
+      }
+    });
+    document.body.append(scrim);
   }
 
   // ---- login modal ----
@@ -284,6 +316,8 @@
     const t = e.target;
     const pin = t.closest('[data-pin]');
     if (pin) return run(null, () => api('POST', '/api/pins', { provider: pin.dataset.pin, pinned: !snap.pins.includes(pin.dataset.pin) }));
+    const rb = t.closest('[data-resets]');
+    if (rb) return resetsModal(rb.dataset.resets);
     const m = t.closest('[data-menu]');
     if (m) { openMenu = openMenu === m.dataset.menu ? null : m.dataset.menu; return draw(); }
     const act = t.closest('[data-act]');
@@ -300,12 +334,6 @@
           return run('Disabled', () => api('POST', path + 'disable'));
         case 'enable': return run('Enabled', () => api('POST', path + 'enable'));
         case 'resume': return run('Resumed', () => api('POST', path + 'resume'));
-        case 'reset': {
-          const a = snap.accounts.find(x => x.name === name), rs = a.quota.resets;
-          const msg = `Spend 1 of ${rs.left} banked resets on ${prov(a.provider).name} · ${a.label}?\n\n${rs.clears ? `Clears your ${rs.clears} limits now. ` : ''}This can't be undone.`;
-          if (!confirm(msg)) return draw();
-          return run(null, async () => toast((await api('POST', path + 'reset')).message || 'Limits reset'));
-        }
         case 'relogin': draw(); return loginModal(act.dataset.provider);
       }
     }
@@ -314,6 +342,7 @@
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
   $('add').addEventListener('click', () => loginModal());
 
+  addEventListener('resize', () => snap && drawSubs(Date.now()));
   load();
   setInterval(load, POLL);
 })();

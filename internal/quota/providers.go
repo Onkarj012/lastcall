@@ -23,7 +23,7 @@ var claudeHeaders = map[string]string{
 // Display order and labels for Claude's usage keys; null entries are skipped.
 var claudeWindows = []struct{ key, name, kind string }{
 	{"five_hour", "5-hour", "5h"},
-	{"seven_day", "7-day", "week"},
+	{"seven_day", "Weekly", "week"},
 	{"seven_day_opus", "7-day Opus", "other"},
 	{"seven_day_sonnet", "7-day Sonnet", "other"},
 	{"seven_day_oauth_apps", "7-day OAuth apps", "other"},
