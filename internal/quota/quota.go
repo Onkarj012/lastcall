@@ -27,6 +27,7 @@ type Result struct {
 	Plan    string      `json:"plan,omitempty"`
 	Windows []Window    `json:"windows"`
 	Meta    [][2]string `json:"meta,omitempty"`
+	Resets  *Resets     `json:"resets,omitempty"`
 	Error   string      `json:"error,omitempty"`
 	At      time.Time   `json:"at"`
 }

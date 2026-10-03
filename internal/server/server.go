@@ -217,6 +217,28 @@ func (s *Server) setDisabled(ctx context.Context, name string, disabled bool) er
 	return nil
 }
 
+// ---- banked resets ----
+
+// useReset spends one of the account's banked resets, then re-reads its quota so
+// the card shows the cleared windows and the new count.
+func (s *Server) useReset(ctx context.Context, name string) (string, error) {
+	c, ok := s.credByName(name)
+	if !ok {
+		return "", fmt.Errorf("unknown account %s", name)
+	}
+	s.mu.Lock()
+	r := s.quota[name]
+	s.mu.Unlock()
+	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
+	fresh := quota.Fetch(ctx, s.cpa, c)
+	if fresh.Error == "" {
+		s.mu.Lock()
+		s.quota[name] = fresh
+		s.mu.Unlock()
+	}
+	return msg, err
+}
+
 // ---- forced refresh ----
 
 func (s *Server) forceRefresh(ctx context.Context) error {

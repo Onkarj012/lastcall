@@ -112,6 +112,9 @@ func (s *Server) Handler(ui fs.FS) http.Handler {
 			return nil, s.setDisabled(ctx, name, true)
 		case "enable", "resume":
 			return nil, s.setDisabled(ctx, name, false)
+		case "reset":
+			msg, err := s.useReset(ctx, name)
+			return map[string]string{"message": msg}, err
 		case "pause":
 			var body struct {
 				Minutes int    `json:"minutes"`

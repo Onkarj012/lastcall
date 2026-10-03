@@ -35,6 +35,7 @@
     },
     pct: x => `${Math.round(x * 100)}%`,
     clock: t => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+    day: t => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     time: t => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
   };
   const until = (t, now) => t ? fmt.in(new Date(t) - now) : '—';
@@ -182,12 +183,19 @@
     else if (a.disabled) b.push(`<span class="badge bad">disabled</span>`);
     if (a.unavailable && !a.disabled) b.push(`<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`);
     if (a.status === 'error' && a.status_message) b.push(`<span class="badge bad" title="${esc(a.status_message)}">error</span>`);
+    const rs = a.quota?.resets;
+    if (rs) {
+      const tip = [rs.label, rs.clears && `clears ${rs.clears}`, rs.note].filter(Boolean).join(' · ');
+      b.push(`<span class="badge reset ${rs.usable ? '' : 'idle'}" title="${esc(tip)}">↺ ${rs.left} reset${rs.left === 1 ? '' : 's'}${rs.expires_at ? ` · use by ${fmt.day(rs.expires_at)}` : ''}</span>`);
+    }
     return b.join('');
   }
 
   function drawSubs(now) {
     const order = [...snap.accounts].sort((x, y) => (snap.pins.includes(y.provider) - snap.pins.includes(x.provider)));
-    $('subs').innerHTML = order.map(a => {
+    // One column per provider, its accounts stacked.
+    const cols = [...new Set(order.map(a => a.provider))].map(id => order.filter(a => a.provider === id));
+    $('subs').innerHTML = cols.map(col => `<div class="col">${col.map(a => {
       const p = prov(a.provider), shade = shadeOf(a), pinned = snap.pins.includes(a.provider);
       const { main, extra } = split(a);
       const q = a.quota;
@@ -209,7 +217,7 @@
         <div class="meta">${meta.join(' · ')}${q?.at ? ` · read ${fmt.ago(now - new Date(q.at))}` : ''}</div>
         ${openMenu === a.name ? menu(a) : ''}
       </div>`;
-    }).join('') || `<div class="meta">No credentials yet.</div>`;
+    }).join('')}</div>`).join('') || `<div class="meta">No credentials yet.</div>`;
   }
 
   function menu(a) {
@@ -222,6 +230,7 @@
       <button data-act="pause" data-min="120" data-name="${n}" ${a.disabled ? 'disabled' : ''}>Pause 2 hours</button>
       <button data-act="pause" data-until="5h" data-name="${n}" ${a.disabled || !five ? 'disabled' : ''}>Pause until 5-hour reset</button>
       <button data-act="pause" data-until="week" data-name="${n}" ${a.disabled || !week ? 'disabled' : ''}>Pause until weekly reset</button>
+      ${a.quota?.resets ? `<hr><button data-act="reset" data-name="${n}" ${a.quota.resets.usable ? '' : 'disabled'} title="${esc(a.quota.resets.note ?? '')}">Use a banked reset (${a.quota.resets.left} left)…</button>` : ''}
       <hr>
       ${a.disabled ? `<button data-act="enable" data-name="${n}">Enable</button>` : `<button class="danger" data-act="disable" data-name="${n}">Disable</button>`}
       <button data-act="relogin" data-provider="${esc(a.provider)}">Re-login ${prov(a.provider).name}…</button>
@@ -291,6 +300,12 @@
           return run('Disabled', () => api('POST', path + 'disable'));
         case 'enable': return run('Enabled', () => api('POST', path + 'enable'));
         case 'resume': return run('Resumed', () => api('POST', path + 'resume'));
+        case 'reset': {
+          const a = snap.accounts.find(x => x.name === name), rs = a.quota.resets;
+          const msg = `Spend 1 of ${rs.left} banked resets on ${prov(a.provider).name} · ${a.label}?\n\n${rs.clears ? `Clears your ${rs.clears} limits now. ` : ''}This can't be undone.`;
+          if (!confirm(msg)) return draw();
+          return run(null, async () => toast((await api('POST', path + 'reset')).message || 'Limits reset'));
+        }
         case 'relogin': draw(); return loginModal(act.dataset.provider);
       }
     }

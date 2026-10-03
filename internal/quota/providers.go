@@ -44,6 +44,7 @@ func claude(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) 
 			HasPro bool `json:"has_claude_pro"`
 		} `json:"account"`
 		Organization struct {
+			UUID   string `json:"uuid"`
 			Type   string `json:"organization_type"`
 			Status string `json:"subscription_status"`
 		} `json:"organization"`
@@ -55,7 +56,8 @@ func claude(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) 
 		defer wg.Done()
 		profErr = call(ctx, c, cred.AuthIndex, "GET", "https://api.anthropic.com/api/oauth/profile", claudeHeaders, "", &profile)
 	}()
-	err := call(ctx, c, cred.AuthIndex, "GET", "https://api.anthropic.com/api/oauth/usage", claudeHeaders, "", &usage)
+	// cedar_ember=1 adds the banked-reset block, the same read Claude Code makes.
+	err := call(ctx, c, cred.AuthIndex, "GET", "https://api.anthropic.com/api/oauth/usage?cedar_ember=1&skip_spend=1", claudeHeaders, "", &usage)
 	wg.Wait()
 	if err != nil {
 		return Result{}, err
@@ -122,6 +124,7 @@ func claude(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) 
 	if fable != nil && !hasWindow(r.Windows, fable.Name) {
 		r.Windows = append(r.Windows, *fable)
 	}
+	r.Resets = claudeResets(usage["cedar_ember"], profile.Organization.UUID)
 	if len(r.Windows) == 0 {
 		return r, fmt.Errorf("no usage windows in response")
 	}
@@ -156,14 +159,7 @@ type codexLimit struct {
 }
 
 func codex(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
-	h := map[string]string{
-		"Authorization": "Bearer $TOKEN$",
-		"Content-Type":  "application/json",
-		"User-Agent":    "codex-tui/0.149.1 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.149.1)",
-	}
-	if cred.IDToken != nil && cred.IDToken.ChatGPTAccountID != "" {
-		h["Chatgpt-Account-Id"] = cred.IDToken.ChatGPTAccountID
-	}
+	h := codexHeaders(cred)
 	var u struct {
 		PlanType string `json:"plan_type"`
 		Credits  *struct {
@@ -240,8 +236,12 @@ func codex(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 		}
 	}
 	if u.ResetCredits != nil {
-		if n, ok := num(u.ResetCredits.AvailableCount); ok {
-			r.Meta = append(r.Meta, [2]string{"manual resets", trimFloat(n)})
+		if n, ok := num(u.ResetCredits.AvailableCount); ok && n > 0 {
+			rs, err := codexResets(ctx, c, cred)
+			if err != nil || rs == nil { // the count alone still tells you they exist
+				rs = &Resets{Left: int(n), Usable: true, Clears: "5-hour + weekly"}
+			}
+			r.Resets = rs
 		}
 	}
 	if cred.IDToken != nil && cred.IDToken.ActiveUntil != "" {
