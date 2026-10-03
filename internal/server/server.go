@@ -231,11 +231,18 @@ func (s *Server) useReset(ctx context.Context, name string) (string, error) {
 	s.mu.Unlock()
 	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
 	fresh := quota.Fetch(ctx, s.cpa, c)
-	if fresh.Error == "" {
-		s.mu.Lock()
+	s.mu.Lock()
+	switch {
+	case fresh.Error == "":
 		s.quota[name] = fresh
-		s.mu.Unlock()
+	case err == nil:
+		// The spend went through but the re-read failed: the cached count is now wrong,
+		// so drop it until the next sweep rather than offer a reset that may be gone.
+		stale := s.quota[name]
+		stale.Resets = nil
+		s.quota[name] = stale
 	}
+	s.mu.Unlock()
 	return msg, err
 }
 

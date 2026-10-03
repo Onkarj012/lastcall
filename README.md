@@ -39,7 +39,9 @@ so a provider change can break them without notice.
 
 ## Install and run
 
-```sh
+Run these in zsh (macOS's default shell); the `read` prompt syntax is zsh-only.
+
+```zsh
 # once: store the CPA management key (prompted, not echoed)
 mkdir -p ~/.config/lastcall && chmod 700 ~/.config/lastcall
 read -rs "k?CPA management key: " && printf %s "$k" > ~/.config/lastcall/management-key \

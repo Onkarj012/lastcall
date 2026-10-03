@@ -16,7 +16,11 @@ running across sleep, reboots and long idle stretches, with no terminal open.
 - `ProgramArguments` points at the stable Homebrew path `/opt/homebrew/opt/cliproxyapi/bin/cliproxyapi`.
 
 It's a per-user LaunchAgent, not a system LaunchDaemon. That's the right model for lastcall too: the key
-file, state file and browser all belong to the logged-in user, and lastcall listens on loopback only.
+file, state file and browser all belong to the logged-in user, and lastcall listens on loopback by default.
+`-listen` can still bind another address (it logs a warning). The `X-Lastcall` header only blocks
+cross-site requests; it doesn't authenticate anyone, so any client that can reach a non-loopback
+listener can disable accounts and spend resets. `install` should keep the loopback default and repeat
+that warning when given a non-loopback `-listen`.
 
 ## Approach
 

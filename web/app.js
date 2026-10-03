@@ -253,7 +253,7 @@
     const scrim = document.createElement('div');
     scrim.className = 'scrim';
     scrim.innerHTML = `<div class="modal" style="--c:${shadeOf(a)}"><h3>${logo(p.logo, shadeOf(a), 16)} ${p.name} · ${short(a.label)} · ${rs.left} banked reset${rs.left === 1 ? '' : 's'}</h3>
-      <div class="rlist">${rs.items.map(it => `<div class="ritem"><div><b>${esc(it.title || 'Usage-limit reset')}</b>${it.count > 1 ? ` <span class="mute">×${it.count}</span>` : ''}</div>
+      <div class="rlist">${(rs.items ?? []).map(it => `<div class="ritem"><div><b>${esc(it.title || 'Usage-limit reset')}</b>${it.count > 1 ? ` <span class="mute">×${it.count}</span>` : ''}</div>
         <div class="mono">${it.expires_at ? `expires ${fmt.clock(it.expires_at)} · in ${until(it.expires_at, now)}` : 'no expiry given'}</div></div>`).join('') || `<div class="mute">The provider reports ${rs.left} but didn't list them.</div>`}</div>
       <div class="mute" style="font-size:12.5px">${rs.clears ? `Using one clears your ${esc(rs.clears)} limits right away. ` : ''}${rs.note ? `<span class="out">${esc(rs.note)}</span>` : ''}</div>
       <div class="row"><button class="btn" data-close>Close</button><button class="btn primary" data-use ${rs.usable ? '' : 'disabled'}>Use one reset</button></div></div>`;
