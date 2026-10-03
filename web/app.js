@@ -8,7 +8,6 @@
     codex: { name: 'Codex', logo: 'openai', color: '#f1f3f5', shades: ['#f1f3f5', '#939daa', '#c5cbd3', '#6b7380'] },
     antigravity: { name: 'Antigravity', logo: 'antigravity', color: '#56ca80', shades: ['#56ca80', '#8fdcaa'] },
     xai: { name: 'Grok', logo: 'xai', color: '#9b94ee', shades: ['#9b94ee', '#c3beff'] },
-    opencode: { name: 'opencode', logo: 'opencode', color: '#52cdd2', shades: ['#52cdd2'] },
   };
   const LOGIN = [['claude', 'Claude'], ['codex', 'Codex'], ['antigravity', 'Antigravity'], ['xai', 'Grok']];
   const prov = id => PROVIDERS[id] ?? { name: id, logo: null, color: '#aaa39d', shades: ['#aaa39d'] };
@@ -183,8 +182,6 @@
     else if (a.disabled) b.push(`<span class="badge bad">disabled</span>`);
     if (a.unavailable && !a.disabled) b.push(`<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`);
     if (a.status === 'error' && a.status_message) b.push(`<span class="badge bad" title="${esc(a.status_message)}">error</span>`);
-    if (snap.routing.applied && a.route?.rank === 1) b.push(`<span class="badge route">routing first</span>`);
-    else if (snap.routing.applied && a.route?.rank) b.push(`<span class="badge route">#${a.route.rank} in line</span>`);
     return b.join('');
   }
 
@@ -195,18 +192,18 @@
       const { main, extra } = split(a);
       const q = a.quota;
       const meta = [
-        ...(a.local ? [] : extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`)),
+        ...extra.map(w => `${esc(w.name)} ${fmt.pct(w.left)}`),
         ...(q?.meta ?? []).map(([k, v]) => `${esc(k)} ${esc(v)}`),
-        ...(a.local ? ['estimated from this Mac\'s opencode history'] : [`${a.success.toLocaleString()} ok · ${a.failed} failed`]),
+        `${a.success.toLocaleString()} ok · ${a.failed} failed`,
       ];
       return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" data-name="${esc(a.name)}">
         <div class="top"><div class="who">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
           <button class="pin ${pinned ? 'on' : ''}" data-pin="${a.provider}" title="${pinned ? 'Unpin' : 'Pin'} ${p.name}">${PIN(pinned)}</button>
-          ${a.local ? '' : `<button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button>`}</div>
+          <button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button></div>
         <div class="badges">${badges(a, now)}</div>
-        ${a.local ? ocBody(a, now) : !a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
+        ${!a.supported ? `<div class="meta">quota not supported for ${esc(a.provider)}</div>`
           : !q ? `<div class="meta">${a.disabled ? 'disabled; quota not fetched' : 'quota pending…'}</div>`
-          : (a.local ? [] : main).map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
+          : main.map(w => `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
               <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`).join('')}
         ${q?.error ? `<div class="qerr" title="${esc(q.error)}">quota: ${esc(q.error.slice(0, 140))}</div>` : ''}
         <div class="meta">${meta.join(' · ')}${q?.at ? ` · read ${fmt.ago(now - new Date(q.at))}` : ''}</div>
@@ -230,25 +227,6 @@
       <button data-act="relogin" data-provider="${esc(a.provider)}">Re-login ${prov(a.provider).name}…</button>
     </div>`;
   }
-
-  // OpenCode Go: one row per model, bar = tightest of its 5h/weekly/monthly dollar windows.
-  function ocBody(a, now) {
-    const ws = a.quota?.windows ?? [];
-    const models = [...new Set(ws.map(w => w.model))];
-    if (!models.length) return `<div class="meta">No capped Go model used in the last 30 days.</div>`;
-    const usd = n => `$${n < 10 ? n.toFixed(2) : n.toFixed(1)}`;
-    return models.map(m => {
-      const mw = ws.filter(w => w.model === m);
-      const tight = mw.reduce((x, y) => (y.left < x.left ? y : x));
-      const part = w => `${{ '5h': '5h', week: 'wk', month: 'mo' }[w.kind]} ${usd(w.cap - (w.spent ?? 0))}`;
-      return `<div class="lim oc"><div class="t"><span>${esc(m)}</span><span class="v ${state(tight.left)}">${mw.map(part).join(' · ')}</span></div>
-        <div class="track"><i style="width:${tight.left * 100}%;background:${state(tight.left) === 'out' ? 'var(--out)' : prov('opencode').color}"></i></div></div>`;
-    }).join('') + `<div class="meta">left of each cap · tightest window drawn${tight5(ws, now)}</div>`;
-  }
-  const tight5 = (ws, now) => {
-    const f = ws.filter(w => w.kind === "5h" && w.spent && w.reset_at).sort((x, y) => new Date(x.reset_at) - new Date(y.reset_at))[0];
-    return f ? ` · 5h frees from ${until(f.reset_at, now)}` : '';
-  };
 
   // ---- login modal ----
   function loginModal(provider) {
@@ -316,13 +294,6 @@
         case 'relogin': draw(); return loginModal(act.dataset.provider);
       }
     }
-    const rt = t.closest('[data-route]');
-    if (rt) {
-      if (rt.dataset.route === 'apply') return run('Priorities applied', () => api('POST', '/api/routing/apply'));
-      return run('Original priorities restored', () => api('POST', '/api/routing/restore'));
-    }
-    const auto = t.closest('[data-auto]');
-    if (auto) return run(auto.dataset.auto === '1' ? 'Auto routing on' : 'Auto routing off', () => api('POST', '/api/routing/auto', { on: auto.dataset.auto === '1' }));
     if (openMenu && !t.closest('.menu')) { openMenu = null; draw(); }
   });
   $('refresh').addEventListener('click', () => run('Quota refreshed', () => api('POST', '/api/refresh')));
