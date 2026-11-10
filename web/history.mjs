@@ -56,9 +56,9 @@ export function buildSeries(rows, kind) {
 // escapeHTML keeps provider labels and saved metadata out of executable markup.
 function escapeHTML(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// api reads history or saves the explicit recording preference.
-async function api(path, body) {
-  const response = await fetch(path, body === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json','X-Lastcall':'1'}, body:JSON.stringify(body)});
+// api reads saved observations without making another provider request.
+async function api(path) {
+  const response = await fetch(path);
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || 'History request failed.');
   return result;
@@ -67,12 +67,13 @@ async function api(path, body) {
 // startPage wires the history page without running browser code in chart tests.
 function startPage() {
   const $ = id => document.getElementById(id);
-  let range = '24h', kind = '5h', account = '', data, loading = false, pending = false, saving = false;
+  let range = '24h', kind = '5h', account = '', data, loading = false, pending = false;
+  let chartPoints = [], activePoint = -1, geometry;
 
   // drawChart renders observed points only and leaves unobserved time blank.
   function drawChart(series) {
     const svg = $('chart'), now = Date.parse(data.now), hours = {'24h':24,'7d':168,'30d':720}[range];
-    const width = Math.max(280, svg.parentElement.clientWidth-32), height = width < 600 ? 250 : 320;
+    const width = Math.max(280, svg.parentElement.clientWidth-32), height = width < 600 ? 270 : 340;
     svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     const start = now-hours*HOUR, left = 48, right = width-16, top = 20, bottom = height-42;
     const x = t => left+(t-start)/(now-start)*(right-left);
@@ -89,17 +90,50 @@ function startPage() {
       const area = segment.length > 1 ? `<polygon points="${x(segment[0].time)},${bottom} ${points} ${x(segment.at(-1).time)},${bottom}" fill="url(#area)"/>` : '';
       return `${area}<polyline points="${points}" fill="none" stroke="var(--series)" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
     }).join('');
-    const points = series.observations.filter(p => p.measured).map(p => `<circle cx="${x(p.time)}" cy="${y(p.window.left)}" r="2.5" fill="var(--series)"><title>${escapeHTML(`${stamp(p.row.at)} · ${percent(p.window.left)} remaining`)}</title></circle>`).join('');
-    svg.innerHTML = `<desc id="chart-description">Recorded remaining ${kind === '5h' ? '5-hour' : 'weekly'} allowance. Gaps show missing or incomparable readings. Exact values are in Saved readings below.</desc><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--series)" stop-opacity=".2"/><stop offset="100%" stop-color="var(--series)" stop-opacity=".01"/></linearGradient></defs><g font-family="DM Mono, monospace">${grid}${ticks}${paths}${points}</g>`;
+    chartPoints = series.observations.filter(p => p.measured);
+    activePoint = -1;
+    geometry = {x,y,start,now,left,right,top,bottom};
+    $('chart-tooltip').hidden = true;
+    const endpoints = series.segments.flatMap(segment => segment.length > 1 ? [segment[0],segment.at(-1)] : segment);
+    const points = endpoints.map(p => `<circle cx="${x(p.time)}" cy="${y(p.window.left)}" r="2.5" fill="var(--series)"/>`).join('');
+    svg.innerHTML = `<desc id="chart-description">Recorded remaining ${kind === '5h' ? '5-hour' : 'weekly'} allowance. Gaps show missing or incomparable readings. Use left and right arrow keys to inspect exact values, or open Saved readings below.</desc><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--series)" stop-opacity=".18"/><stop offset="100%" stop-color="var(--series)" stop-opacity=".01"/></linearGradient></defs><g font-family="DM Mono, monospace">${grid}${ticks}${paths}${points}</g><g id="chart-cursor" visibility="hidden"><line id="cursor-line" y1="${top}" y2="${bottom}" stroke="#9a938d" stroke-dasharray="3 4"/><circle id="cursor-dot" r="5" fill="var(--series)" stroke="#0f0d0c" stroke-width="2"/></g>`;
+  }
+
+  // inspectPoint reveals one measured value without connecting across a gap.
+  function inspectPoint(index) {
+    if (!chartPoints.length || !geometry) return;
+    activePoint = Math.max(0,Math.min(index,chartPoints.length-1));
+    const point = chartPoints[activePoint], x = geometry.x(point.time), y = geometry.y(point.window.left);
+    $('chart-cursor').setAttribute('visibility','visible');
+    $('cursor-line').setAttribute('x1',x); $('cursor-line').setAttribute('x2',x);
+    $('cursor-dot').setAttribute('cx',x); $('cursor-dot').setAttribute('cy',y);
+    const tooltip = $('chart-tooltip');
+    tooltip.innerHTML = `<b>${percent(point.window.left)} left</b><span>${escapeHTML(stamp(point.row.at))}</span>`;
+    tooltip.style.setProperty('--tooltip-x', `${x+20}px`);
+    tooltip.hidden = false;
+  }
+
+  // hideInspection clears the chart cursor when pointer or keyboard inspection ends.
+  function hideInspection() {
+    if ($('chart-cursor')) $('chart-cursor').setAttribute('visibility','hidden');
+    $('chart-tooltip').hidden = true;
+    activePoint = -1;
+  }
+
+  // inspectPointer finds the nearest saved reading to a pointer location.
+  function inspectPointer(event) {
+    if (!chartPoints.length || !geometry) return;
+    const box = $('chart').getBoundingClientRect();
+    const px = (event.clientX-box.left)*$('chart').viewBox.baseVal.width/box.width;
+    const time = geometry.start+(px-geometry.left)/(geometry.right-geometry.left)*(geometry.now-geometry.start);
+    let low=0,high=chartPoints.length-1;
+    while (low<high) { const mid=Math.floor((low+high)/2); if(chartPoints[mid].time<time) low=mid+1; else high=mid; }
+    const index = low>0 && Math.abs(chartPoints[low-1].time-time)<Math.abs(chartPoints[low].time-time) ? low-1 : low;
+    if (index!==activePoint) inspectPoint(index);
   }
 
   // draw updates account controls, recording health, and the selected history.
   function draw() {
-    if (!saving) $('recording').checked = data.enabled;
-    $('recording').disabled = saving;
-    $('recording-label').textContent = data.enabled ? 'On' : 'Off';
-    const saved = data.status.last_saved && !data.status.last_saved.startsWith('0001-') ? stamp(data.status.last_saved) : 'No readings saved yet';
-    $('recording-status').textContent = `${data.enabled ? 'Recording on' : 'Recording off'} · Last saved: ${saved}${data.records.at(-1)?.failure ? ' · Latest poll failed' : ''}`;
     $('error').textContent = data.read_error || data.status.error || '';
     account = data.account;
     $('account').innerHTML = data.accounts.length ? data.accounts.map(a => `<option value="${escapeHTML(a.key)}">${a.provider === 'codex' ? 'Codex' : 'Claude'} · ${escapeHTML(a.label)}</option>`).join('') : '<option>No Claude or Codex accounts</option>';
@@ -111,13 +145,26 @@ function startPage() {
     const measured = series.observations.filter(p => p.measured), latest = measured.at(-1);
     $('remaining').textContent = latest ? percent(latest.window.left) : '—';
     $('latest-time').textContent = latest ? stamp(latest.row.at) : 'No saved reading';
-    $('account-detail').textContent = `${kind === '5h' ? '5-hour' : 'Weekly'} allowance${latest?.row.plan ? ` · ${latest.row.plan}` : ''}`;
+    $('account-detail').textContent = latest?.row.plan || '';
+    $('chart-title').textContent = `${kind === '5h' ? '5-hour' : 'Weekly'} remaining`;
+    const lastPoll = data.records.at(-1), failed = !!lastPoll?.failure;
+    const stale = lastPoll && Date.parse(data.now)-Date.parse(lastPoll.at)>Math.max(300, data.quota_every_s*2)*1000;
+    const error = data.read_error || data.status.error;
+    $('recording-status').dataset.health = error ? 'error' : failed || stale ? 'warning' : !lastPoll ? 'waiting' : 'ok';
+    $('health-text').textContent = error ? 'History needs attention' : failed ? 'Latest poll failed' : stale ? 'Waiting for a fresh reading' : !lastPoll ? 'Waiting for the first reading' : 'Recording automatically';
     $('chart').toggleAttribute('hidden', !measured.length);
     $('empty').hidden = !!measured.length;
     if (!measured.length) {
-      $('empty').innerHTML = `<h3>${data.read_error ? 'History unavailable' : 'No readings in this range'}</h3><p>${data.read_error ? 'Resolve the file error above to read saved history.' : data.enabled ? 'Readings appear after the next successful quota poll. Try a longer range for older readings.' : 'Turn on recording to start saving readings from the next quota poll.'}</p>`;
+      const noAccounts = !data.accounts.length;
+      $('empty').innerHTML = `<span class="empty-mark" aria-hidden="true">···</span><h3>${data.read_error ? 'History unavailable' : noAccounts ? 'No accounts yet' : 'Waiting for readings'}</h3><p>${data.read_error ? 'Check the history file error above.' : noAccounts ? '<a href="/">Add a Claude or Codex account</a> to start saving usage history.' : 'History saves automatically after each quota poll. Try a longer range for older readings.'}</p>`;
+      chartPoints = []; hideInspection();
     } else drawChart(series);
-    $('summary').innerHTML = series.compared || series.increase ? `<span>Observed drops <b>${series.drop.toFixed(1)} percentage points</b></span><span>Observed increases <b>${series.increase.toFixed(1)} points</b></span><span><b>${series.compared}</b> comparable intervals</span>` : '';
+    $('drain').innerHTML = series.compared ? `${series.drop.toFixed(1)}<small>pp</small>` : '—';
+    $('increases').innerHTML = series.compared || series.increase ? `+${series.increase.toFixed(1)}<small>pp</small>` : '—';
+    const reset = latest?.window.reset_at;
+    $('reset-time').textContent = reset ? `Reported reset ${latest.window.reset_estimated ? '~ ' : ''}${stamp(reset)}` : '';
+    $('saved-status').textContent = measured.length ? `${measured.length} readings in this range` : 'Readings save automatically';
+    $('poll-note').textContent = `Saved every ${Math.round(data.quota_every_s/60)} min · 30-day retention`;
     $('reading-count').textContent = `${data.records.length} polls`;
     $('readings').innerHTML = series.observations.slice(-100).reverse().map(p => {
       const note = p.row.failure ? 'Poll failed' : !p.window ? 'Window not reported' : p.window.inferred ? 'Inferred; excluded from chart' : 'Measured';
@@ -135,27 +182,14 @@ function startPage() {
       const result = await api(`/api/history?${new URLSearchParams({range:requestedRange, account:requestedAccount})}`);
       if (range === requestedRange && account === requestedAccount) { data = result; draw(); }
       else pending = true;
-    } catch (error) { $('error').textContent = error.message; }
+    } catch (error) {
+      $('error').textContent = error.message;
+      $('recording-status').dataset.health = 'error';
+      $('health-text').textContent = 'History unavailable';
+    }
     finally { loading = false; if (pending) { pending = false; load(); } }
   }
 
-  // changeRecording saves the preference before updating the displayed status.
-  async function changeRecording() {
-    if (saving) return;
-    saving = true;
-    const enabled = $('recording').checked;
-    const restoreFocus = document.activeElement === $('recording');
-    $('recording').disabled = true;
-    try { await api('/api/history/settings', {enabled}); await load(); }
-    catch (error) { $('recording').checked = !enabled; $('error').textContent = error.message; }
-    finally {
-      saving = false;
-      $('recording').disabled = false;
-      if (restoreFocus && document.activeElement === document.body) $('recording').focus({preventScroll:true});
-    }
-  }
-
-  $('recording').addEventListener('change', changeRecording);
   $('account').addEventListener('change', () => { account = $('account').value; load(); });
   $('windows').addEventListener('click', event => {
     const button = event.target.closest('button[data-window]');
@@ -170,6 +204,17 @@ function startPage() {
     range = button.dataset.range;
     for (const b of $('ranges').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b === button));
     load();
+  });
+  $('chart').addEventListener('pointermove', inspectPointer);
+  $('chart').addEventListener('pointerdown', inspectPointer);
+  $('chart').addEventListener('pointerleave', hideInspection);
+  $('chart').addEventListener('blur', hideInspection);
+  $('chart').addEventListener('keydown', event => {
+    if (event.key==='Escape') { hideInspection(); return; }
+    if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key) || !chartPoints.length) return;
+    event.preventDefault();
+    const current = activePoint<0 ? chartPoints.length-1 : activePoint;
+    inspectPoint(event.key==='Home' ? 0 : event.key==='End' ? chartPoints.length-1 : current+(event.key==='ArrowLeft' ? -1 : 1));
   });
   load();
   setInterval(load, 30000);

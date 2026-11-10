@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
 	"lastcall/internal/quota"
-	"lastcall/internal/state"
 )
 
 type historyAccount struct {
@@ -19,18 +17,15 @@ type historyAccount struct {
 	Label    string `json:"label"`
 }
 
-// fetchQuota captures the recording period before making the existing provider calls.
+// fetchQuota saves each fresh provider result before the live quota cache is updated.
 func (s *Server) fetchQuota(ctx context.Context, c cpa.Credential) quota.Result {
-	s.historyMu.Lock()
-	epoch := s.st.Snapshot().HistoryEpoch
-	s.historyMu.Unlock()
 	r := quota.Fetch(ctx, s.cpa, c)
-	s.recordQuota(c, r, epoch)
+	s.recordQuota(c, r)
 	return r
 }
 
 // recordQuota saves the fresh result before live-card cache preservation runs.
-func (s *Server) recordQuota(c cpa.Credential, r quota.Result, epoch string) {
+func (s *Server) recordQuota(c cpa.Credential, r quota.Result) {
 	s.historyMu.Lock()
 	defer s.historyMu.Unlock()
 	p := quota.Provider(c.Provider)
@@ -38,11 +33,7 @@ func (s *Server) recordQuota(c cpa.Credential, r quota.Result, epoch string) {
 		return
 	}
 	alias := history.AccountKey(c, quota.Result{})
-	d := s.st.Snapshot()
-	if !d.HistoryRecording || d.HistoryEpoch != epoch {
-		return
-	}
-	row := history.Record{Account: s.History.Key(c, r), Alias: alias, Provider: p, At: r.At, Epoch: d.HistoryEpoch, Every: int(s.quotaEvery.Seconds()), Plan: r.Plan}
+	row := history.Record{Account: s.History.Key(c, r), Alias: alias, Provider: p, At: r.At, Epoch: "automatic", Every: int(s.quotaEvery.Seconds()), Plan: r.Plan}
 	if r.Error != "" {
 		row.Failure = "fetch_failed"
 	} else {
@@ -53,30 +44,6 @@ func (s *Server) recordQuota(c cpa.Credential, r quota.Result, epoch string) {
 		}
 	}
 	_ = s.History.Append(row) // The History page reports persistence errors; quota cards stay usable.
-}
-
-// historyHandlers serves saved readings and the explicit recording preference.
-func (s *Server) historyHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/history/settings", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		var body struct {
-			Enabled *bool `json:"enabled"`
-		}
-		if err := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1024)).Decode(&body); err != nil || body.Enabled == nil {
-			return nil, badRequest("history needs {enabled: true|false}")
-		}
-		s.historyMu.Lock()
-		defer s.historyMu.Unlock()
-		if s.History == nil {
-			return nil, badRequest("history storage is unavailable")
-		}
-		return nil, s.st.Update(func(d *state.Data) {
-			if d.HistoryRecording != *body.Enabled {
-				d.HistoryEpoch = time.Now().UTC().Format(time.RFC3339Nano)
-			}
-			d.HistoryRecording = *body.Enabled
-		})
-	}))
-	mux.HandleFunc("GET /api/history", s.getHistory)
 }
 
 // getHistory returns one bounded time range and deduplicated account choices.
@@ -131,6 +98,5 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 			selected = append(selected, row)
 		}
 	}
-	d := s.st.Snapshot()
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": d.HistoryRecording, "status": s.History.Status(), "read_error": readError, "accounts": choices, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays})
+	writeJSON(w, http.StatusOK, map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays})
 }

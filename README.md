@@ -19,7 +19,7 @@ and the full panel stays at `/management.html`.
   Timed pauses survive restarts. Disable and enable stay until you change them.
 - **Banked resets.** Claude grants and Codex reset credits show their count; the popup lists each one with
   its expiry and can spend one (with a confirm).
-- **Quota history.** A separate `/history` page saves Claude and Codex allowance readings when you turn recording on. It starts off. Compare 5-hour and weekly readings over 24 hours, 7 days, or 30 days.
+- **Quota history.** A separate `/history` page automatically saves Claude and Codex allowance readings. Compare 5-hour and weekly readings over 24 hours, 7 days, or 30 days.
 - **Login.** Add an account or re-login an existing one through CPA's OAuth flow.
 
 | Provider | Quota source | Banked resets |
@@ -62,7 +62,7 @@ The UI is embedded in the binary. To run lastcall in the background and start it
 | `-listen` | `127.0.0.1:8318` | Keep it on loopback; anyone who can reach it can disable your accounts. |
 | `-cpa` | `http://127.0.0.1:8317` | CPA base URL. |
 | `-key` | `~/.config/lastcall/management-key` | File holding the CPA management key. Re-read when it changes. |
-| `-state` | `~/Library/Application Support/lastcall/state.json` | Pins, timed pauses, and the history recording preference. |
+| `-state` | `~/Library/Application Support/lastcall/state.json` | Pins and timed pauses. |
 | `-quota-every` | `5m` | Provider quota poll interval. |
 
 ## How it talks to CPA
@@ -80,18 +80,18 @@ Endpoint contracts and their sources are in [docs/api-contracts.md](docs/api-con
 
 ## Quota history
 
-Open **History** from the dashboard and turn on **Record quota history**. Lastcall saves fresh results
-from existing quota polls, including the fetch after spending a reset. Viewing history makes no provider
-calls. It keeps unchanged readings and safe failure markers, without saving upstream error bodies or credentials.
+Open **History** from the dashboard. Lastcall automatically saves fresh results from existing quota
+polls, including the fetch after spending a reset. Recording runs while the service is running, even
+when the History page is closed. Viewing history makes no provider calls. It keeps unchanged readings and safe failure markers, without saving upstream error bodies or credentials.
 
 History uses daily JSONL files in a `history` directory beside `state.json`. Files have owner-only
-permissions and expire after 30 calendar days, including today. Turning recording off keeps saved
-readings until they expire. Missed polls, disabled accounts, sleep, and recording pauses leave gaps.
-History errors appear on the History page and do not stop the live quota cards.
+permissions and expire after 30 calendar days, including today. Missed polls, disabled accounts,
+and sleep leave gaps. History errors appear on the History page and do not stop the live quota cards.
 
 The chart shows recorded remaining allowance. Drops are percentage points between comparable readings
 in the same account, plan, window, and allowance period. Inferred values are excluded. A rise can be a
-reset or a correction; Lastcall does not assume a refill to 100%. Exact readings and reset times are in IST.
+reset or a correction; Lastcall does not assume a refill to 100%. Hover or tap the chart to inspect
+readings, or use its left and right arrow keys. Exact readings and reset times are in IST.
 
 History is account-wide and can include use from other machines and apps. Confirmed duplicate logins
 share one series. Missing account identity stays separate until a confirmed mapping is available.
@@ -111,7 +111,7 @@ cmd/lastcall      entry point and flags
 internal/cpa      CPA management API client
 internal/quota    per-provider quota and reset adapters
 internal/server   polling loops, pauses, HTTP API
-internal/state    JSON state file (pins, pauses, recording preference)
+internal/state    JSON state file (pins, pauses)
 internal/history  local quota observations and retention
 internal/routing  reset-first routing planner (not wired up yet)
 web               embedded UI (plain HTML, CSS, JS)

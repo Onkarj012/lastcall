@@ -11,30 +11,32 @@
 <header class="bar">
   <a class="mark" href="/">last<span>call</span></a>
   <nav aria-label="Main"><a href="/">Overview</a><a href="/history" aria-current="page">History</a></nav>
-  <span class="local-note">Stored on this machine</span>
+  <span class="local-note">Local history · 30 days</span>
 </header>
 <div class="banner" id="error" role="alert"></div>
 <main class="history-main">
-  <div class="page-heading"><div><p class="eyebrow">Allowance over time</p><h1>Usage history</h1><p class="intro">See when your allowance falls and how much it changes.</p></div><span class="timezone">All times IST</span></div>
-  <section class="recording" aria-labelledby="recording-title">
-    <div><h2 id="recording-title">Record quota history</h2><p>Save quota readings on this machine to show usage history.</p><p class="small">Off by default. Keeps 30 days, using the existing quota polls. Turning it off stops new readings.</p></div>
-    <label class="switch"><input type="checkbox" id="recording" aria-label="Record quota history" disabled><span class="switch-track" aria-hidden="true"></span><span id="recording-label">Loading</span></label>
-  </section>
-  <div class="recording-status" id="recording-status" role="status" aria-live="polite">Loading history…</div>
+  <div class="page-heading"><h1>Usage history</h1><div class="recording-status" id="recording-status" role="status" aria-live="polite"><span class="health-dot" aria-hidden="true"></span><span id="health-text">Loading history</span></div></div>
   <section class="history-panel" aria-labelledby="chart-title">
     <div class="filters">
-      <label class="account-field">Account<select id="account" disabled><option>Loading accounts…</option></select></label>
-      <div class="filter-groups"><fieldset id="windows"><legend>Allowance window</legend><button type="button" data-window="5h" aria-pressed="true">5-hour</button><button type="button" data-window="week" aria-pressed="false">Weekly</button></fieldset><fieldset id="ranges"><legend>Time range</legend><button type="button" data-range="24h" aria-pressed="true">24h</button><button type="button" data-range="7d" aria-pressed="false">7d</button><button type="button" data-range="30d" aria-pressed="false">30d</button></fieldset></div>
+      <label class="account-field"><span class="sr-only">Account</span><select id="account" disabled><option>Loading accounts…</option></select></label>
+      <fieldset id="windows"><legend class="sr-only">Allowance window</legend><button type="button" data-window="5h" aria-pressed="true">5-hour</button><button type="button" data-window="week" aria-pressed="false">Weekly</button></fieldset>
+      <fieldset id="ranges"><legend class="sr-only">Time range</legend><button type="button" data-range="24h" aria-pressed="true">24h</button><button type="button" data-range="7d" aria-pressed="false">7d</button><button type="button" data-range="30d" aria-pressed="false">30d</button></fieldset>
     </div>
-    <div class="chart-heading"><div><h2 id="chart-title">Remaining allowance</h2><p id="account-detail">Claude and Codex accounts</p></div><div class="latest"><b id="remaining">—</b><span id="latest-time">No saved reading</span></div></div>
-    <div class="chart-wrap" id="chart-wrap"><div class="empty" id="empty"><h3>No history yet</h3><p>Turn on recording to start saving readings from the next quota poll.</p></div><svg id="chart" viewBox="0 0 960 320" role="img" aria-labelledby="chart-title chart-description" hidden></svg></div>
-    <div class="chart-key"><span><i></i>Recorded remaining allowance</span><span>Gaps mean no comparable readings</span></div>
-    <div class="history-summary" id="summary"></div>
+    <div class="chart-heading">
+      <div class="allowance"><h2 id="chart-title">5-hour remaining</h2><div class="remaining-value"><b id="remaining">—</b><span id="account-detail"></span></div><p id="latest-time">Waiting for the first reading</p></div>
+      <div class="history-summary" id="summary"><div><span>Observed drain</span><b id="drain">—</b></div><div><span>Observed increases</span><b id="increases">—</b></div></div>
+    </div>
+    <div class="chart-wrap" id="chart-wrap">
+      <div class="empty" id="empty"><span class="empty-mark" aria-hidden="true">···</span><h3>Loading history</h3><p>Reading saved quota observations.</p></div>
+      <svg id="chart" viewBox="0 0 960 340" role="img" tabindex="0" aria-labelledby="chart-title chart-description" hidden></svg>
+      <output class="chart-tooltip" id="chart-tooltip" hidden></output>
+    </div>
+    <div class="chart-meta"><span><i aria-hidden="true"></i>Recorded <span class="gap-note">· Gaps are unobserved</span></span><span>All times IST</span></div>
+    <div class="chart-bottom"><span id="saved-status">Readings save automatically</span><span id="reset-time"></span></div>
   </section>
-  <p class="scope-note">Allowance belongs to the account. It can include use on HP, Mac, and other apps. History cannot tell which model or machine used it.</p>
-  <details class="readings"><summary>Saved readings <span id="reading-count"></span></summary><p class="small">Latest 100 polls in this range. Increases are reported separately and do not prove a scheduled reset.</p><div class="table-scroll"><table><thead><tr><th>Time, IST</th><th>Remaining</th><th>Change</th><th>Next reset, IST</th><th>Observation</th></tr></thead><tbody id="readings"></tbody></table></div></details>
+  <div class="history-note"><p>Account-wide usage, including other devices and apps.</p><span id="poll-note">Saved automatically · 30-day retention</span></div>
+  <details class="readings"><summary>Saved readings <span id="reading-count"></span></summary><p class="small">Latest 100 polls. Drain is measured in percentage points between comparable readings. Increases can be resets or corrections. Use the arrow keys on the chart to inspect readings.</p><div class="table-scroll" tabindex="0" role="region" aria-label="Saved quota readings"><table><thead><tr><th>Time, IST</th><th>Remaining</th><th>Change</th><th>Next reset, IST</th><th>Observation</th></tr></thead><tbody id="readings"></tbody></table></div></details>
 </main>
-<footer class="stamp"><span><b>◆ lastcall</b> quota history</span><span>Local storage · 30-day retention</span></footer>
 <script type="module" src="/history.mjs"></script>
 </body>
 </html>

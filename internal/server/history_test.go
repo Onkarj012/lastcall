@@ -14,7 +14,6 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
-	"lastcall/internal/quota"
 	"lastcall/internal/state"
 	"lastcall/web"
 )
@@ -61,25 +60,24 @@ func TestRecorderUsesFreshFetch(t *testing.T) {
 		t.Fatal("unexpected provider calls", calls.Load())
 	}
 	rows, err := s.History.Read(time.Now())
-	if err != nil || len(rows) != 0 {
+	if err != nil || len(rows) != 1 {
 		t.Fatal(rows, err)
 	}
-	s.st.Update(func(d *state.Data) { d.HistoryRecording = true; d.HistoryEpoch = "on" })
 	s.refreshQuota(context.Background())
 	s.refreshQuota(context.Background())
 	fail.Store(true)
 	s.refreshQuota(context.Background())
 	rows, err = s.History.Read(time.Now())
-	if err != nil || len(rows) != 3 {
+	if err != nil || len(rows) != 4 {
 		t.Fatalf("rows=%d err=%v", len(rows), err)
 	}
 	if rows[0].Windows[0].Left != .6 || rows[1].Windows[0].Left != .6 {
 		t.Fatal("unchanged samples missing")
 	}
-	if rows[2].Failure != "fetch_failed" || len(rows[2].Windows) != 0 {
-		t.Fatal("saved cached success", rows[2])
+	if rows[3].Failure != "fetch_failed" || len(rows[3].Windows) != 0 {
+		t.Fatal("saved cached success", rows[3])
 	}
-	if rows[2].Account != rows[0].Account {
+	if rows[3].Account != rows[0].Account {
 		t.Fatal("failure detached from confirmed account")
 	}
 	if len(s.quota[s.creds[0].Name].Windows) == 0 {
@@ -97,58 +95,52 @@ func TestRecorderUsesFreshFetch(t *testing.T) {
 	}
 }
 
-// TestHistoryEndpoints validates preference persistence and read-only history requests.
+// TestHistoryEndpoints verifies history reads and ignores the removed recording preference.
 func TestHistoryEndpoints(t *testing.T) {
 	s, calls, _ := testServer(t)
+	// Older builds saved false by default. It must not suppress automatic recording.
+	legacyPath := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(legacyPath, []byte(`{"history_recording":false,"history_epoch":"old","pins":["claude"],"pauses":{}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := state.Open(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.st = legacy
+	s.refreshQuota(context.Background())
+	rows, err := s.History.Read(time.Now())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("automatic recording failed: rows=%d err=%v", len(rows), err)
+	}
 	h := s.Handler(web.FS)
-	request := func(method, path, body, header string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(method, path, strings.NewReader(body))
-		r.Header.Set("X-Lastcall", header)
+	request := func(method, path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		return w
 	}
-	if w := request("POST", "/api/history/settings", `{"enabled":true}`, ""); w.Code != 403 {
-		t.Fatal(w.Code)
-	}
-	if w := request("POST", "/api/history/settings", `{}`, "1"); w.Code != 400 {
-		t.Fatal(w.Code)
-	}
-	if w := request("POST", "/api/history/settings", `{"enabled":true}`, "1"); w.Code != 200 {
+	before := calls.Load()
+	if w := request("GET", "/api/history?range=7d"); w.Code != 200 {
 		t.Fatal(w.Body)
 	}
-	first := s.st.Snapshot()
-	if !first.HistoryRecording || first.HistoryEpoch == "" {
-		t.Fatal(first)
-	}
-	if w := request("GET", "/api/history?range=7d", "", ""); w.Code != 200 {
-		t.Fatal(w.Body)
-	}
-	if calls.Load() != 0 {
+	if calls.Load() != before {
 		t.Fatal("history read fetched provider")
 	}
-	if w := request("GET", "/api/history?range=forever", "", ""); w.Code != 400 {
+	if w := request("GET", "/api/history?range=forever"); w.Code != 400 {
 		t.Fatal(w.Code)
 	}
-	if w := request("GET", "/history", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), "Usage history") {
+	if w := request("GET", "/history"); w.Code != 200 || !strings.Contains(w.Body.String(), "Usage history") || strings.Contains(w.Body.String(), "type=\"checkbox\"") {
 		t.Fatal(w.Code, w.Body)
 	}
-	request("POST", "/api/history/settings", `{"enabled":false}`, "1")
-	request("POST", "/api/history/settings", `{"enabled":true}`, "1")
-	if s.st.Snapshot().HistoryEpoch == first.HistoryEpoch {
-		t.Fatal("pause did not split period")
-	}
-	s.recordQuota(s.creds[0], quota.Result{At: time.Now(), Plan: "Pro", Windows: []quota.Window{{ID: "five_hour", Kind: "5h", Left: .5}}}, first.HistoryEpoch)
-	rows, _ := s.History.Read(time.Now())
-	if len(rows) != 0 {
-		t.Fatal("in-flight old period recorded")
+	if w := request("POST", "/api/history/settings"); w.Code == 200 {
+		t.Fatal("obsolete recording control still available")
 	}
 }
 
 // TestManualResetFetchIsRecorded covers the refresh path outside quota sweeps.
 func TestManualResetFetchIsRecorded(t *testing.T) {
 	s, calls, _ := testServer(t)
-	s.st.Update(func(d *state.Data) { d.HistoryRecording = true })
 	s.useReset(context.Background(), s.creds[0].Name)
 	rows, err := s.History.Read(time.Now())
 	if err != nil || len(rows) != 1 || calls.Load() != 2 {

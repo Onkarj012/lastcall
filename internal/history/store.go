@@ -96,7 +96,7 @@ func (s *Store) Status() Status {
 	return s.status
 }
 
-// Expire enforces retention even while recording is off and the page is closed.
+// Expire enforces retention while the History page is closed.
 func (s *Store) Expire(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
