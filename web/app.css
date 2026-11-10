@@ -124,3 +124,6 @@ main[hidden] { display: none; }
 .toast { position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line2); border-radius: 8px; padding: 10px 15px; font-size: 13.5px; z-index: 60; max-width: 80vw; }
 .toast.bad { border-color: var(--out); color: var(--out); }
 
+
+/* Page navigation uses the same controls as the account actions. */
+.nav-link { text-decoration: none; }

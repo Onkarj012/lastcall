@@ -65,6 +65,7 @@ func claude(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) 
 
 	var r Result
 	if profErr == nil {
+		r.AccountScope = profile.Organization.UUID
 		switch {
 		case profile.Organization.Type == "claude_team" && profile.Organization.Status == "active":
 			r.Plan = "Team"
@@ -119,7 +120,7 @@ func claude(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) 
 		if !ok {
 			continue
 		}
-		r.Windows = append(r.Windows, Window{Name: d.name, Kind: d.kind, Left: usedToLeft(used), ResetAt: instant(w.ResetsAt)})
+		r.Windows = append(r.Windows, Window{ID: d.key, Name: d.name, Kind: d.kind, Left: usedToLeft(used), ResetAt: instant(w.ResetsAt)})
 	}
 	if fable != nil && !hasWindow(r.Windows, fable.Name) {
 		r.Windows = append(r.Windows, *fable)
@@ -195,6 +196,7 @@ func codex(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 				kind = "week"
 			}
 			used, ok := num(w.UsedPercent)
+			inferred := !ok
 			if !ok {
 				if !l.LimitReached && (l.Allowed == nil || *l.Allowed) {
 					continue
@@ -202,10 +204,12 @@ func codex(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 				used = 100
 			}
 			reset := instant(w.ResetAt)
+			estimated := false
 			if reset == nil {
 				if secs, ok := num(w.ResetAfterSeconds); ok {
 					t := time.Now().Add(time.Duration(secs * float64(time.Second)))
 					reset = &t
+					estimated = true
 				}
 			}
 			name := map[string]string{"5h": "5-hour", "week": "Weekly", "month": "Monthly"}[kind]
@@ -216,7 +220,7 @@ func codex(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 				name = label + " · " + name
 				kind = "other"
 			}
-			r.Windows = append(r.Windows, Window{Name: name, Kind: kind, Left: usedToLeft(used), ResetAt: reset})
+			r.Windows = append(r.Windows, Window{ID: fmt.Sprintf("%s/%d", label, i), Inferred: inferred, ResetEstimated: estimated, Name: name, Kind: kind, Left: usedToLeft(used), ResetAt: reset})
 		}
 	}
 	add(u.RateLimit, "")

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
+	"lastcall/internal/history"
 	"lastcall/internal/quota"
 	"lastcall/internal/state"
 )
@@ -24,6 +25,8 @@ const (
 )
 
 type Server struct {
+	History    *history.Store
+	historyMu  sync.Mutex
 	cpaURL     string
 	cpa        *cpa.Client
 	st         *state.Store
@@ -62,6 +65,9 @@ func (s *Server) Run(ctx context.Context) {
 		case <-credT.C:
 			s.refreshCreds(ctx)
 		case <-quotaT.C:
+			if s.History != nil {
+				s.History.Expire(time.Now())
+			}
 			go s.refreshQuota(ctx)
 		case <-pauseT.C:
 			s.resumeDue(ctx)
@@ -125,7 +131,7 @@ func (s *Server) refreshQuota(ctx context.Context) {
 			defer func() { <-sem }()
 			qctx, cancel := context.WithTimeout(ctx, 70*time.Second)
 			defer cancel()
-			r := quota.Fetch(qctx, s.cpa, c)
+			r := s.fetchQuota(qctx, c)
 			s.mu.Lock()
 			if r.Error != "" {
 				// Keep the last good windows so a transient upstream error doesn't blank the card.
@@ -230,7 +236,7 @@ func (s *Server) useReset(ctx context.Context, name string) (string, error) {
 	r := s.quota[name]
 	s.mu.Unlock()
 	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
-	fresh := quota.Fetch(ctx, s.cpa, c)
+	fresh := s.fetchQuota(ctx, c)
 	s.mu.Lock()
 	switch {
 	case fresh.Error == "":

@@ -1,4 +1,4 @@
-// Package state persists lastcall's own small state: pins and timed pauses.
+// Package state persists lastcall's pins, timed pauses, and recording preference.
 // Nothing here holds credentials.
 package state
 
@@ -21,8 +21,10 @@ type Pause struct {
 }
 
 type Data struct {
-	Pins   []string         `json:"pins"`
-	Pauses map[string]Pause `json:"pauses"`
+	HistoryRecording bool             `json:"history_recording"`
+	HistoryEpoch     string           `json:"history_epoch,omitempty"`
+	Pins             []string         `json:"pins"`
+	Pauses           map[string]Pause `json:"pauses"`
 }
 
 type Store struct {
@@ -67,11 +69,19 @@ func (s *Store) Snapshot() Data {
 	return d
 }
 
+// Update persists a change and restores the previous state if the write fails.
 func (s *Store) Update(fn func(*Data)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	raw, _ := json.Marshal(s.data)
+	var before Data
+	_ = json.Unmarshal(raw, &before)
 	fn(&s.data)
-	return s.save()
+	if err := s.save(); err != nil {
+		s.data = before
+		return err
+	}
+	return nil
 }
 
 // save writes atomically: temp file in the same directory, then rename.

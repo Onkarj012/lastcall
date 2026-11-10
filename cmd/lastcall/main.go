@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
+	"lastcall/internal/history"
 	"lastcall/internal/server"
 	"lastcall/internal/state"
 	"lastcall/web"
@@ -39,6 +40,7 @@ func main() {
 		log.Fatalf("state: %v", err)
 	}
 	srv := server.New(*cpaURL, cpa.New(*cpaURL, *keyPath), st, *quotaEvery)
+	srv.History = history.New(filepath.Join(filepath.Dir(*statePath), "history"))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
