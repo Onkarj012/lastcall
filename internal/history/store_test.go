@@ -138,3 +138,22 @@ func TestWriteFailure(t *testing.T) {
 		t.Fatal(s.Status())
 	}
 }
+
+// TestConfirmedAliasReconcilesEarlierReadings keeps a recovered profile from adding a second account.
+func TestConfirmedAliasReconcilesEarlierReadings(t *testing.T) {
+	s := New(t.TempDir())
+	c := cpa.Credential{Provider: "claude", Name: "one", Email: "user@example.com"}
+	alias := AccountKey(c, quota.Result{})
+	confirmed := AccountKey(c, quota.Result{AccountScope: "org"})
+	for _, key := range []string{alias, confirmed} {
+		r := sample()
+		r.Account, r.Alias = key, alias
+		if err := s.Append(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := New(s.dir).Read(time.Now())
+	if err != nil || len(rows) != 2 || rows[0].Account != confirmed || rows[1].Account != confirmed {
+		t.Fatalf("alias split the account: rows=%+v err=%v", rows, err)
+	}
+}

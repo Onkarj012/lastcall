@@ -100,6 +100,7 @@ The tooltip shows the recorded allowance, change from the previous reading, and 
 
 History is account-wide and can include use from other machines and apps. Confirmed duplicate logins
 share one series. Missing account identity stays separate until a confirmed mapping is available.
+Removed accounts stay under "Removed accounts" for history, without counting in current provider pools.
 One recorder can observe shared account quota used on both Mac and HP if it can access those accounts.
 Running Lastcall on both machines creates separate local histories; they do not sync. There is no device
 or model attribution or combined token budget.

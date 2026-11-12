@@ -31,7 +31,7 @@ func TestTodayHistory(t *testing.T) {
 		}
 	}
 	w := httptest.NewRecorder()
-	s.getHistory(w, httptest.NewRequest("GET", "/api/history?range=today", nil))
+	s.getHistory(w, httptest.NewRequest("GET", "/api/history?range=today&account=today", nil))
 	var got struct{ Records []history.Record }
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -81,8 +81,10 @@ func TestCombinedHistory(t *testing.T) {
 	now := time.Now().Add(-time.Minute)
 	s.creds = nil
 	for i, provider := range []string{"claude", "codex"} {
+		c := cpa.Credential{Name: provider + "-account", Provider: provider}
+		s.creds = append(s.creds, c)
 		for _, at := range []time.Time{now.Add(-5 * time.Minute), now} {
-			if err := s.History.Append(history.Record{Account: provider + "-account", Provider: provider, At: at, Plan: "Pro", Windows: []quota.Window{{Kind: "5h", Left: float64(i) / 2}}}); err != nil {
+			if err := s.History.Append(history.Record{Account: history.AccountKey(c, quota.Result{}), Provider: provider, At: at, Plan: "Pro", Windows: []quota.Window{{Kind: "5h", Left: float64(i) / 2}}}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -90,7 +92,7 @@ func TestCombinedHistory(t *testing.T) {
 	for _, tc := range []struct {
 		selection         string
 		records, accounts int
-	}{{"", 4, 2}, {"all", 4, 2}, {"claude", 2, 1}, {"codex", 2, 1}, {"codex-account", 2, 1}} {
+	}{{"", 4, 2}, {"all", 4, 2}, {"claude", 2, 1}, {"codex", 2, 1}, {history.AccountKey(s.creds[1], quota.Result{}), 2, 1}} {
 		w := httptest.NewRecorder()
 		s.getHistory(w, httptest.NewRequest("GET", "/api/history?account="+tc.selection, nil))
 		var got struct {
@@ -264,5 +266,65 @@ func TestShortDisableRecordsBreak(t *testing.T) {
 				t.Fatalf("short disable did not leave a gap: rows=%+v err=%v", rows, err)
 			}
 		})
+	}
+}
+
+// TestRemovedAccountStaysOutsideCurrentPool keeps saved history without blocking live totals.
+func TestRemovedAccountStaysOutsideCurrentPool(t *testing.T) {
+	s, _, _ := testServer(t)
+	s.recordQuota(s.creds[0], quota.Result{At: time.Now(), Plan: "Pro"})
+	if err := s.History.Append(history.Record{Account: "removed", Provider: "claude", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"all", "claude", "removed"} {
+		w := httptest.NewRecorder()
+		s.getHistory(w, httptest.NewRequest("GET", "/api/history?account="+key, nil))
+		var got struct {
+			Accounts []historyAccount
+			Selected []historyAccount
+			Records  []history.Record
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Accounts) != 2 || len(got.Selected) != 1 || len(got.Records) != 1 || (got.Selected[0].Key == "removed") != (key == "removed") {
+			t.Fatalf("selection %s includes removed account in pool: %+v", key, got)
+		}
+	}
+}
+
+type blockedHistoryWriter struct {
+	*httptest.ResponseRecorder
+	writing chan struct{}
+	release chan struct{}
+}
+
+// Write waits for the test to simulate a history client that has stopped reading.
+func (w *blockedHistoryWriter) Write(p []byte) (int, error) {
+	close(w.writing)
+	<-w.release
+	return w.ResponseRecorder.Write(p)
+}
+
+// TestHistoryDownloadDoesNotBlockRecording separates network writes from the recorder lock.
+func TestHistoryDownloadDoesNotBlockRecording(t *testing.T) {
+	s, _, _ := testServer(t)
+	w := &blockedHistoryWriter{httptest.NewRecorder(), make(chan struct{}), make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		s.getHistory(w, httptest.NewRequest("GET", "/api/history", nil))
+		close(done)
+	}()
+	<-w.writing
+	defer func() { close(w.release); <-done }()
+	recorded := make(chan struct{})
+	go func() {
+		s.recordQuota(s.creds[0], quota.Result{At: time.Now()})
+		close(recorded)
+	}()
+	select {
+	case <-recorded:
+	case <-time.After(time.Second):
+		t.Fatal("slow download blocked quota recording")
 	}
 }

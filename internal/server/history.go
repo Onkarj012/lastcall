@@ -15,6 +15,7 @@ type historyAccount struct {
 	Key      string `json:"key"`
 	Provider string `json:"provider"`
 	Label    string `json:"label"`
+	Archived bool   `json:"archived,omitempty"`
 }
 
 // fetchQuota saves each fresh provider result before the live quota cache is updated.
@@ -81,7 +82,6 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.historyMu.Lock()
-	defer s.historyMu.Unlock()
 	now := time.Now()
 	rows, err := s.History.Read(now)
 	readError := ""
@@ -106,7 +106,7 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	for _, row := range rows {
 		if !seen[row.Account] {
-			choices = append(choices, historyAccount{Key: row.Account, Provider: row.Provider, Label: "Saved account " + row.Account[:min(8, len(row.Account))]})
+			choices = append(choices, historyAccount{Key: row.Account, Provider: row.Provider, Label: "Saved account " + row.Account[:min(8, len(row.Account))], Archived: true})
 			seen[row.Account] = true
 		}
 	}
@@ -117,7 +117,7 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 	selectedAccounts := []historyAccount{}
 	selectedKeys := map[string]bool{}
 	for _, choice := range choices {
-		if key == "all" || key == choice.Key || key == choice.Provider {
+		if key == choice.Key || !choice.Archived && (key == "all" || key == choice.Provider) {
 			selectedAccounts = append(selectedAccounts, choice)
 			selectedKeys[choice.Key] = true
 		}
@@ -133,5 +133,7 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 			selected = append(selected, row)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "selected": selectedAccounts, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays})
+	response := map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "selected": selectedAccounts, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays}
+	s.historyMu.Unlock()
+	writeJSON(w, http.StatusOK, response)
 }

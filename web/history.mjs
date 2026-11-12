@@ -319,6 +319,9 @@ function startPage() {
     $('error').textContent = data.read_error || data.status.error || '';
     account = data.account;
     const selected = data.accounts.find(a => a.key === account);
+    const archived = data.accounts.filter(a => a.archived);
+    $('archived').hidden = !archived.length;
+    $('archived-accounts').innerHTML = archived.map(a => `<li><button type="button" data-account="${escapeHTML(a.key)}" data-focus="account-${escapeHTML(a.key)}"><span class="acct-name">${escapeHTML(PROVIDERS[a.provider]?.name || a.provider)} · ${escapeHTML(a.label)}</span><span class="chevron" aria-hidden="true">›</span></button></li>`).join('');
     const choices = data.selected || data.accounts.filter(a => account === 'all' || account === a.provider || account === a.key);
     const groups = buildAccounts(data.records, data.accounts, kind).filter(group => choices.some(choice => choice.key === group.key)).map(g => ({...g, color:PROVIDERS[g.provider]?.color || g.color}));
     const combined = ['all','claude','codex'].includes(account) && choices.length > 0;
@@ -421,6 +424,10 @@ function startPage() {
     if (button) openAccount(button.dataset.account, '#back');
   });
   $('back').addEventListener('click', () => openAccount('all', `[data-focus="account-${account}"]`));
+  $('archived-accounts').addEventListener('click', event => {
+    const button = event.target.closest('button[data-account]');
+    if (button) openAccount(button.dataset.account, '#back');
+  });
   $('windows').addEventListener('click', event => {
     const button = event.target.closest('button[data-window]');
     if (!button) return;

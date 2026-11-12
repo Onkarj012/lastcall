@@ -194,6 +194,11 @@ func (s *Store) Read(now time.Time) ([]Record, error) {
 			}
 		}
 	}
+	for i := range rows {
+		if rows[i].Account == rows[i].Alias && s.keys[rows[i].Alias] != "" {
+			rows[i].Account = s.keys[rows[i].Alias]
+		}
+	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].At.Before(rows[j].At) })
 	return rows, nil
 }
