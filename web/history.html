@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History · lastcall</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/history.css">
+</head>
+<body class="history-page">
+<header class="bar">
+  <a class="mark" href="/">last<span>call</span></a>
+  <nav aria-label="Main"><a href="/">Overview</a><a href="/history" aria-current="page">History</a></nav>
+  <span class="local-note">Local history · 30 days</span>
+</header>
+<div class="banner" id="error" role="alert"></div>
+<main class="history-main">
+  <div class="page-head">
+    <h1>Quota history</h1>
+    <div class="recording-status" id="recording-status" data-health="waiting" role="status" aria-live="polite"><span class="health-dot" aria-hidden="true"></span><span id="health-text">Loading history</span></div>
+  </div>
+  <div class="toolbar">
+    <div class="segmented" id="windows" role="group" aria-label="Allowance window"><button type="button" data-window="5h" aria-pressed="true">5-hour</button><button type="button" data-window="week" aria-pressed="false">Weekly</button></div>
+    <div class="segmented" id="ranges" role="group" aria-label="Time range"><button type="button" data-range="today" aria-pressed="true">Today</button><button type="button" data-range="7d" aria-pressed="false">7d</button><button type="button" data-range="30d" aria-pressed="false">30d</button></div>
+    <label class="forecast"><input type="checkbox" id="projection"><span>Forecast</span><small>Dashed line from the last hour of drain</small></label>
+  </div>
+  <section class="history-panel" id="panel" aria-busy="true" aria-label="Quota history">
+    <div class="pool-grid" id="pools" hidden></div>
+    <article class="detail" id="detail" data-view="status" aria-labelledby="chart-title">
+      <header class="detail-head">
+        <button class="back" id="back" type="button">‹ All accounts</button>
+        <p class="detail-name" id="detail-name"></p>
+        <h2 id="chart-title">5-hour remaining</h2>
+        <div class="remaining-value"><b id="remaining">—</b><span>of 100%</span><span class="plan" id="account-detail"></span></div>
+        <p class="caption" id="latest-time">Waiting for the first reading</p>
+      </header>
+      <dl class="detail-stats"><div><dt>Recorded drain</dt><dd id="drain">—</dd></div><div><dt>Recorded increases</dt><dd id="increases">—</dd></div></dl>
+      <div class="chart-wrap" id="chart-wrap">
+        <div class="empty" id="empty"><span class="empty-mark" aria-hidden="true">···</span><h3>Loading history</h3><p>Reading saved quota observations.</p></div>
+        <svg id="chart" viewBox="0 0 960 340" role="img" tabindex="0" aria-labelledby="chart-title chart-description" hidden></svg>
+        <output class="chart-tooltip" id="chart-tooltip" aria-live="polite" hidden></output>
+      </div>
+      <div class="detail-foot">
+        <div class="chart-legend"><span><i aria-hidden="true"></i>Recorded</span><span id="reset-legend" hidden><i class="reset-key" aria-hidden="true"></i>Reported reset</span></div>
+        <p id="coverage">Gaps are unobserved. Lines stop at the last reading.</p>
+        <p class="foot-line"><span id="saved-status">Readings save automatically</span><span id="reset-time"></span></p>
+        <p class="foot-line">Drain and increases are percentage points between comparable readings. An increase may be a reset or a correction.</p>
+      </div>
+    </article>
+  </section>
+  <div class="history-note"><p>Each account counts up to 100%, and the same account counts once. Quota is account-wide, so Mac, HP and other apps are included. Dotted lines are gap estimates, not measured use. Times are IST.</p><span id="poll-note">Saved automatically · 30-day retention</span></div>
+  <details class="readings"><summary>Saved readings <span id="reading-count"></span></summary><p class="small">Latest 100 polls for the selected accounts.</p><div class="table-scroll" tabindex="0" role="region" aria-label="Saved quota readings"><table><thead><tr><th>Account</th><th>Time, IST</th><th>Remaining</th><th>Change</th><th>Next reset, IST</th><th>Observation</th></tr></thead><tbody id="readings"></tbody></table></div></details>
+  <details class="readings" id="archived" hidden><summary>Removed accounts</summary><p class="small">Saved history stays available here. Removed accounts do not count in current provider pools.</p><ul class="pool-accounts" id="archived-accounts"></ul></details>
+</main>
+<script src="/logos.js"></script>
+<script type="module" src="/history.mjs"></script>
+</body>
+</html>

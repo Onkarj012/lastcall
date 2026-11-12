@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"lastcall/internal/cpa"
+	"lastcall/internal/history"
 	"lastcall/internal/quota"
 	"lastcall/internal/state"
 )
@@ -24,10 +25,13 @@ const (
 )
 
 type Server struct {
-	cpaURL     string
-	cpa        *cpa.Client
-	st         *state.Store
-	quotaEvery time.Duration
+	History         *history.Store
+	historyMu       sync.Mutex
+	historyDisabled map[string]bool
+	cpaURL          string
+	cpa             *cpa.Client
+	st              *state.Store
+	quotaEvery      time.Duration
 
 	mu          sync.Mutex
 	creds       []cpa.Credential
@@ -62,6 +66,9 @@ func (s *Server) Run(ctx context.Context) {
 		case <-credT.C:
 			s.refreshCreds(ctx)
 		case <-quotaT.C:
+			if s.History != nil {
+				s.History.Expire(time.Now())
+			}
 			go s.refreshQuota(ctx)
 		case <-pauseT.C:
 			s.resumeDue(ctx)
@@ -73,6 +80,11 @@ func (s *Server) refreshCreds(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	creds, err := s.cpa.Credentials(cctx)
+	if err == nil {
+		for _, c := range creds {
+			s.recordAvailability(c, creds)
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
@@ -125,7 +137,7 @@ func (s *Server) refreshQuota(ctx context.Context) {
 			defer func() { <-sem }()
 			qctx, cancel := context.WithTimeout(ctx, 70*time.Second)
 			defer cancel()
-			r := quota.Fetch(qctx, s.cpa, c)
+			r := s.fetchQuota(qctx, c)
 			s.mu.Lock()
 			if r.Error != "" {
 				// Keep the last good windows so a transient upstream error doesn't blank the card.
@@ -177,6 +189,8 @@ func (s *Server) pause(ctx context.Context, name string, until time.Time) error 
 		_ = s.st.Update(func(d *state.Data) { delete(d.Pauses, name) })
 		return err
 	}
+	c.Disabled = true
+	s.recordAvailability(c, nil)
 	s.refreshCreds(ctx)
 	return nil
 }
@@ -209,6 +223,8 @@ func (s *Server) setDisabled(ctx context.Context, name string, disabled bool) er
 	if err := s.cpa.SetDisabled(ctx, c.Name, c.AuthIndex, disabled); err != nil {
 		return err
 	}
+	c.Disabled = disabled
+	s.recordAvailability(c, nil)
 	// A manual on/off replaces any timed pause.
 	if err := s.st.Update(func(d *state.Data) { delete(d.Pauses, name) }); err != nil {
 		return err
@@ -230,7 +246,7 @@ func (s *Server) useReset(ctx context.Context, name string) (string, error) {
 	r := s.quota[name]
 	s.mu.Unlock()
 	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
-	fresh := quota.Fetch(ctx, s.cpa, c)
+	fresh := s.fetchQuota(ctx, c)
 	s.mu.Lock()
 	switch {
 	case fresh.Error == "":

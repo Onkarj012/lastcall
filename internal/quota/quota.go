@@ -17,19 +17,23 @@ import (
 
 // Window is one limit. Left is the remaining fraction, 0..1, whatever the provider reports.
 type Window struct {
-	Name    string     `json:"name"`
-	Kind    string     `json:"kind"` // 5h | week | month | other
-	Left    float64    `json:"left"`
-	ResetAt *time.Time `json:"reset_at,omitempty"`
+	ID             string     `json:"id,omitempty"`
+	Inferred       bool       `json:"inferred,omitempty"`
+	ResetEstimated bool       `json:"reset_estimated,omitempty"`
+	Name           string     `json:"name"`
+	Kind           string     `json:"kind"` // 5h | week | month | other
+	Left           float64    `json:"left"`
+	ResetAt        *time.Time `json:"reset_at,omitempty"`
 }
 
 type Result struct {
-	Plan    string      `json:"plan,omitempty"`
-	Windows []Window    `json:"windows"`
-	Meta    [][2]string `json:"meta,omitempty"`
-	Resets  *Resets     `json:"resets,omitempty"`
-	Error   string      `json:"error,omitempty"`
-	At      time.Time   `json:"at"`
+	AccountScope string      `json:"-"`
+	Plan         string      `json:"plan,omitempty"`
+	Windows      []Window    `json:"windows"`
+	Meta         [][2]string `json:"meta,omitempty"`
+	Resets       *Resets     `json:"resets,omitempty"`
+	Error        string      `json:"error,omitempty"`
+	At           time.Time   `json:"at"`
 }
 
 type Caller interface {

@@ -99,6 +99,8 @@ func firstNonEmpty(ss ...string) string {
 // Handler serves the API and the embedded UI.
 func (s *Server) Handler(ui fs.FS) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/history", s.getHistory)
+	mux.HandleFunc("GET /history", func(w http.ResponseWriter, r *http.Request) { http.ServeFileFS(w, r, ui, "history.html") })
 	mux.HandleFunc("GET /api/snapshot", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.snapshot()) })
 
 	mux.HandleFunc("POST /api/refresh", s.act(func(ctx context.Context, r *http.Request) (any, error) {

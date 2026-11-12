@@ -19,6 +19,7 @@ and the full panel stays at `/management.html`.
   Timed pauses survive restarts. Disable and enable stay until you change them.
 - **Banked resets.** Claude grants and Codex reset credits show their count; the popup lists each one with
   its expiry and can spend one (with a confirm).
+- **Quota history.** A separate `/history` page automatically saves Claude and Codex allowance readings. Watch Claude and Codex accounts together, with 5-hour and weekly readings from today, 7 days, or 30 days.
 - **Login.** Add an account or re-login an existing one through CPA's OAuth flow.
 
 | Provider | Quota source | Banked resets |
@@ -77,6 +78,40 @@ Every call goes through the Go backend; the browser never sees the management ke
 
 Endpoint contracts and their sources are in [docs/api-contracts.md](docs/api-contracts.md).
 
+## Quota history
+
+Open **History** from the dashboard. The default view starts at midnight IST today, with one Claude pool and one Codex pool. Each shows
+the sum of remaining account percentages, such as 183% of 200% for two accounts, and a filled history chart.
+Each account contributes up to 100%; plan multipliers are not assumed. Open an account row for exact
+readings and measured drain. Claude and Codex remain separate pools. Lastcall automatically saves fresh results from existing quota
+polls, including the fetch after spending a reset. Recording runs while the service is running, even
+when the History page is closed. Viewing history makes no provider calls. It keeps unchanged readings and safe failure markers, without saving upstream error bodies or credentials.
+
+History uses daily JSONL files in a `history` directory beside `state.json`. New files are created with owner-only
+permissions; existing permissions are unchanged. Files expire after 30 calendar days, including today. Missed polls, disabled accounts,
+and sleep leave gaps. History errors appear on the History page and do not stop the live quota cards.
+
+The chart shows recorded remaining allowance. Drops are percentage points between comparable readings
+in the same account, plan, window, and allowance period. Inferred values are excluded. A rise can be a
+reset or a correction; Lastcall does not assume a refill to 100%. Hover or tap the chart to inspect
+readings, or use its left and right arrow keys. Exact readings and reset times are in IST.
+Dashed chart markers show reported reset times within the selected range, not confirmed refills.
+The tooltip shows the recorded allowance, change from the previous reading, and reported reset time.
+
+History is account-wide and can include use from other machines and apps. Confirmed duplicate logins
+share one series. Missing account identity stays separate until a confirmed mapping is available.
+Removed accounts stay under "Removed accounts" for history, without counting in current provider pools.
+One recorder can observe shared account quota used on both Mac and HP if it can access those accounts.
+Running Lastcall on both machines creates separate local histories; they do not sync. There is no device
+or model attribution or combined token budget.
+
+**Forecast** starts off. Enable it to estimate future balance from recent drain. Estimates require
+at least 15 minutes of comparable recent readings from every account. Dashed lines assume recent drain
+continues and an account refills to 100% at its reported reset time. These are estimates, not provider
+guarantees. Stale or incomplete pools have no projection; missing readings leave gaps. Dotted bridges show average change between complete readings only when
+every account has the same plan, window and known reset period at both ends. These estimates do not
+change measured drain or projections. Gaps across resets stay open.
+
 ## Safety
 
 - A rejected key stops all calls until the key file changes, because 5 bad tries make CPA ban localhost for 30 minutes.
@@ -92,6 +127,7 @@ internal/cpa      CPA management API client
 internal/quota    per-provider quota and reset adapters
 internal/server   polling loops, pauses, HTTP API
 internal/state    JSON state file (pins, pauses)
+internal/history  local quota observations and retention
 internal/routing  reset-first routing planner (not wired up yet)
 web               embedded UI (plain HTML, CSS, JS)
 docs              API contracts, original plan, service plan

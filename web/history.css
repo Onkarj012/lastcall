@@ -1,0 +1,162 @@
+.history-page { --card: #0f0f0f; --card-line: #222; --claude: #ed987b; --codex: #8cb4fa; display: flex; flex-direction: column; background: #060606; min-height: 100dvh; }
+.history-page .bar { flex: none; }
+.history-page .mark { color: var(--fg); text-decoration: none; }
+.history-page nav { display: flex; gap: 24px; height: 100%; }
+.history-page nav a { display: flex; align-items: center; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; }
+.history-page nav a:hover { color: var(--fg); }
+.history-page nav a[aria-current] { color: var(--fg); border-color: var(--brand); }
+.local-note { margin-left: auto; color: var(--mute); font: 11px var(--mono); }
+[hidden] { display: none !important; }
+
+.history-main { min-width: 0; width: min(1280px, 100%); margin: 0 auto; padding: 28px 28px 40px; }
+.page-head { display: flex; justify-content: space-between; align-items: center; gap: 12px 24px; flex-wrap: wrap; margin-bottom: 20px; }
+.history-main h1 { font-size: 28px; font-weight: 600; letter-spacing: -.035em; margin: 0; }
+.recording-status { display: flex; align-items: center; gap: 8px; color: var(--mute2); font-size: 12px; }
+.health-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.recording-status[data-health=waiting] .health-dot { background: var(--mute); }
+.recording-status[data-health=error] .health-dot { background: var(--out); }
+.recording-status[data-health=warning] .health-dot { background: var(--low); }
+
+/* One row of controls: window, range, then the optional forecast. */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 20px; }
+.segmented { display: flex; gap: 2px; padding: 3px; background: #141414; border: 1px solid var(--card-line); border-radius: 9px; }
+.segmented button { min-height: 34px; padding: 0 15px; border: 0; border-radius: 6px; color: var(--mute); background: transparent; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background .15s, color .15s; }
+.segmented button:hover { color: var(--fg); background: #1c1c1c; }
+.segmented button[aria-pressed=true] { color: var(--fg); background: #2b2b2b; }
+.forecast { display: flex; align-items: center; gap: 10px; margin-left: auto; min-height: 34px; color: var(--mute2); font-size: 13px; cursor: pointer; }
+.forecast small { color: var(--mute); font-size: 12px; font-weight: 400; }
+.forecast input { appearance: none; position: relative; flex: none; width: 34px; height: 20px; margin: 0; border-radius: 10px; background: #2b2b2b; cursor: pointer; transition: background .15s; }
+.forecast input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--mute2); transition: transform .15s; }
+.forecast input:checked { background: var(--brand); }
+.forecast input:checked::after { background: #000; transform: translateX(14px); }
+
+/* Provider cards: the pooled balance and chart come first, the accounts behind them last. */
+.pool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 20px; }
+.pool-card { min-width: 0; padding: 24px 24px 12px; background: var(--card); border: 1px solid var(--card-line); border-radius: 16px; }
+.pool-card header { display: flex; align-items: center; gap: 12px; }
+.pool-card h2 { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 20px; font-weight: 600; }
+.provider-mark { display: inline-flex; color: var(--pool-color); }
+.provider-mark svg { display: block; width: 24px; height: 24px; }
+.count { color: #8a8a8a; font-size: 15px; }
+.chip { margin-left: auto; padding: 2px 10px; border: 1px solid color-mix(in srgb, var(--low) 55%, transparent); border-radius: 99px; color: var(--low); font-size: 12px; }
+.pool-balance { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin: 18px 0 0; }
+.pool-balance b { font-size: clamp(46px, 5.2vw, 68px); font-weight: 600; letter-spacing: -.055em; line-height: 1; font-variant-numeric: tabular-nums; }
+.pool-balance span { color: #8a8a8a; font-size: 19px; }
+.pool-card[data-state=stale] .pool-balance b { color: var(--mute2); }
+.pool-card[data-state=empty] .pool-balance b { color: var(--mute); }
+.pool-caption { margin: 8px 0 18px; color: var(--mute); font-size: 12px; }
+.pool-graph { position: relative; }
+.pool-graph svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.pool-graph svg:focus-visible { outline-offset: 2px; }
+.pool-graph text { fill: #8a8a8a; font: 12px "DM Sans", system-ui, sans-serif; }
+.pool-graph .note { fill: #b5b5b5; paint-order: stroke; stroke: var(--card); stroke-width: 4px; stroke-linejoin: round; }
+.pool-graph .projected-note { font-weight: 600; }
+.pool-graph .muted-note { fill: #6d6d6d; font-size: 12px; }
+.pool-graph .now-line { stroke: #6f6f6f; }
+.pool-graph .now-label { fill: #bdbdbd; }
+.pool-graph .forecast-zone { fill: #fff; fill-opacity: .025; }
+.pool-cursor line { stroke: #9a9a9a; stroke-dasharray: 3 4; }
+.pool-empty { position: absolute; inset: 40% 15% auto 22%; margin: 0; text-align: center; color: var(--mute); font-size: 13px; }
+.pool-graph .chart-tooltip { top: 22px; }
+.pool-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 10px; color: #999; font-size: 12px; }
+.key { display: inline-flex; align-items: center; gap: 7px; }
+.key i { width: 20px; height: 0; border-top: 2.5px solid var(--pool-color); }
+.key.projected i { border-top-style: dashed; }
+.key.bridge i { border-top: 2.5px dotted color-mix(in srgb, var(--pool-color) 70%, transparent); }
+.pool-note { margin: 12px 0 0; color: var(--mute); font-size: 12px; line-height: 1.55; }
+.pool-note[data-tone=warn] { color: var(--low); }
+.pool-accounts { list-style: none; margin: 18px 0 0; padding: 0; border-top: 1px solid var(--card-line); }
+.pool-accounts li + li { border-top: 1px solid #1a1a1a; }
+.pool-accounts button { display: grid; grid-template-columns: minmax(0, 1fr) minmax(48px, 120px) 46px 10px; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 6px 4px; border: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; border-radius: 8px; }
+.pool-accounts button:hover { background: #151515; }
+.acct-name { display: flex; flex-direction: column; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.acct-name small { color: var(--mute); font-size: 12px; }
+.meter { height: 6px; overflow: hidden; border-radius: 3px; background: #222; }
+.meter i { display: block; height: 100%; border-radius: 3px; background: var(--pool-color); }
+.pool-accounts b { font: 500 14px var(--mono); text-align: right; }
+.pool-accounts b.stale { color: var(--low); }
+.chev { color: var(--mute); }
+
+/* Account view and status messages share one frame. */
+.detail { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 32px; padding: 24px; background: var(--card); border: 1px solid var(--card-line); border-radius: 16px; }
+.detail > * { grid-column: 1 / -1; }
+.detail > .detail-head { grid-column: 1; }
+.detail > .detail-stats { grid-column: 2; grid-row: 1; align-self: end; }
+.detail[data-view=status] > :not(.chart-wrap) { display: none; }
+.back { margin: 0 0 18px -6px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--mute2); font-size: 13px; cursor: pointer; }
+.back:hover { color: var(--fg); background: #1a1a1a; }
+.detail-name { margin: 0 0 4px; color: var(--series); font-size: 14px; font-weight: 600; }
+.detail h2 { margin: 0; color: var(--mute2); font-size: 13px; font-weight: 500; }
+.remaining-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; }
+.remaining-value b { font-size: clamp(46px, 5.2vw, 68px); font-weight: 600; letter-spacing: -.055em; line-height: 1; font-variant-numeric: tabular-nums; }
+.remaining-value span { color: #8a8a8a; font-size: 19px; }
+.remaining-value .plan { padding: 2px 10px; border: 1px solid var(--card-line); border-radius: 99px; font-size: 12px; }
+.remaining-value .plan:empty { display: none; }
+.caption { margin: 8px 0 0; color: var(--mute); font-size: 12px; }
+.detail-stats { display: flex; flex-wrap: wrap; gap: 12px 40px; margin: 0; }
+.detail-stats div { display: flex; flex-direction: column-reverse; gap: 4px; }
+.detail-stats dt { color: var(--mute); font-size: 12px; }
+.detail-stats dd { margin: 0; font: 500 22px/1.2 var(--mono); letter-spacing: -.03em; }
+.detail-stats small { margin-left: 4px; color: var(--mute); font-size: 12px; font-weight: 400; }
+.chart-wrap { position: relative; margin-top: 12px; }
+#chart { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+#chart text { fill: #8a8a8a; font: 12px "DM Sans", system-ui, sans-serif; }
+#chart:focus-visible { outline-offset: 2px; }
+.empty { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+.empty-mark { margin-bottom: 10px; color: var(--brand); font: 32px var(--mono); letter-spacing: 7px; }
+.empty h3 { margin: 0 0 8px; font-size: 17px; font-weight: 500; }
+.empty p { max-width: 360px; margin: 0; color: var(--mute); font-size: 13px; line-height: 1.6; }
+.empty a { color: var(--brand); }
+.history-panel[aria-busy=true] .empty-mark { animation: history-pulse 1.2s ease-in-out infinite alternate; }
+@keyframes history-pulse { to { opacity: .25; } }
+.detail-foot { margin-top: 12px; color: var(--mute); font-size: 12px; line-height: 1.6; }
+.detail-foot p { margin: 6px 0 0; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; color: #999; }
+.chart-legend > span { display: inline-flex; align-items: center; gap: 7px; }
+.chart-legend i { width: 20px; height: 0; border-top: 2.5px solid var(--series); }
+.chart-legend .reset-key { border-top: 1px dashed var(--mute); }
+.foot-line { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font-family: var(--mono); font-size: 11px; }
+.chart-tooltip { pointer-events: none; position: absolute; top: 8px; left: clamp(8px, var(--tooltip-x, 50%), calc(100% - 252px)); z-index: 1; display: flex; flex-direction: column; gap: 4px; width: min(232px, calc(100% - 16px)); padding: 11px 13px; border: 1px solid #333; border-radius: 8px; background: #1a1a1a; box-shadow: 0 8px 28px #000a; }
+.chart-tooltip b { font: 500 20px var(--mono); }
+.chart-tooltip b small { color: var(--mute); font-size: 12px; font-weight: 400; }
+.chart-tooltip span { color: var(--mute2); font: 11px/1.5 var(--mono); }
+.chart-tooltip small { margin-top: 2px; padding-top: 6px; border-top: 1px solid #333; color: var(--mute); font-size: 11px; line-height: 1.5; }
+
+.history-note { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; margin: 18px 0 20px; color: var(--mute); font-size: 12px; line-height: 1.6; }
+.history-note p { max-width: 96ch; margin: 0; }
+.history-note > span { font: 11px var(--mono); white-space: nowrap; }
+.readings { padding-top: 16px; border-top: 1px solid var(--line); }
+.readings summary { color: var(--mute2); font-size: 13px; cursor: pointer; }
+#reading-count { margin-left: 8px; color: var(--mute); font: 11px var(--mono); }
+.readings .small { margin: 10px 0 0; color: var(--mute); font-size: 12px; }
+.table-scroll { overflow-x: auto; margin-top: 12px; }
+.readings table { width: 100%; border-collapse: collapse; font: 11px/1.5 var(--mono); text-align: left; white-space: nowrap; }
+.readings th { color: var(--mute); font-weight: 400; }
+.readings th, .readings td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.readings td:first-child, .readings th:first-child { padding-left: 0; }
+.history-page :is(a, button, select, summary, svg, input, .table-scroll):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+
+@media (max-width: 700px) {
+  .history-page .bar { padding: 0 18px; gap: 22px; }
+  .local-note { display: none; }
+  .history-main { padding: 20px 16px 32px; }
+  .history-main h1 { font-size: 24px; }
+  .toolbar { gap: 10px 12px; }
+  .segmented button { padding: 0 12px; }
+  .forecast { flex-wrap: wrap; gap: 2px 10px; margin-left: 0; width: 100%; }
+  .forecast small { flex-basis: 100%; padding-left: 44px; }
+  .pool-grid { gap: 14px; }
+  .pool-card, .detail { padding: 20px 16px 8px; border-radius: 14px; }
+  .detail { padding-bottom: 16px; }
+  .detail > .detail-stats { grid-column: 1; grid-row: auto; margin-top: 18px; }
+  .pool-card h2 { font-size: 19px; }
+  .count { font-size: 14px; }
+  .pool-accounts button { grid-template-columns: minmax(0, 1fr) auto 8px; grid-template-areas: "name value chev" "meter meter meter"; gap: 6px 10px; padding: 10px 4px 12px; }
+  .acct-name { grid-area: name; }
+  .meter { grid-area: meter; height: 4px; }
+  .pool-accounts b { grid-area: value; }
+  .chev { grid-area: chev; }
+  .history-note { flex-direction: column; }
+}
+@media (max-width: 350px) { .segmented button { padding: 0 9px; } }
+@media (prefers-reduced-motion: reduce) { .segmented button, .forecast input, .forecast input::after { transition: none; } .history-panel[aria-busy=true] .empty-mark { animation: none; } }
