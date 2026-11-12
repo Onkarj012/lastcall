@@ -334,7 +334,7 @@ function startPage() {
     $('chart-title').textContent = `${windowName()} remaining`;
     const excluded = series.observations.length-measured.length;
     $('coverage').textContent = `${excluded ? `${excluded} polls without a measured value. ` : ''}Gaps are unobserved. Lines stop at the last reading.`;
-    const lastPoll = data.records.at(-1), failed = !!lastPoll?.failure;
+    const lastPoll = data.records.at(-1), failed = !!lastPoll?.failure && lastPoll.failure !== 'account_disabled';
     const stale = groups.some(g => { const p = g.series.observations.at(-1); return !p || p.row.failure || !p.measured || Date.parse(data.now)-p.time>Math.max(300,data.quota_every_s*2)*1000; });
     const error = data.read_error || data.status.error;
     $('recording-status').dataset.health = error ? 'error' : failed || stale ? 'warning' : !lastPoll ? 'waiting' : 'ok';
@@ -355,7 +355,7 @@ function startPage() {
     $('poll-note').textContent = `Saved every ${Math.round(data.quota_every_s/60)} min · 30-day retention`;
     $('reading-count').textContent = `${data.records.length} polls`;
     $('readings').innerHTML = series.observations.slice(-100).reverse().map(p => {
-      const note = p.row.failure ? 'Poll failed' : !p.window ? 'Window not reported' : p.window.inferred ? 'Inferred; excluded from chart' : 'Measured';
+      const note = p.row.failure === 'account_disabled' ? 'Account disabled; recording gap' : p.row.failure ? 'Poll failed' : !p.window ? 'Window not reported' : p.window.inferred ? 'Inferred; excluded from chart' : 'Measured';
       const change = p.delta === null ? '—' : `${p.delta > 0 ? '+' : ''}${p.delta.toFixed(1)} pp`;
       const owner = choices.find(a => a.key === p.row.account);
       return `<tr><td>${escapeHTML(owner ? `${owner.provider === 'codex' ? 'Codex' : 'Claude'} · ${owner.label}` : 'Saved account')}</td><td>${escapeHTML(stamp(p.row.at))}</td><td>${p.measured ? percent(p.window.left) : '—'}</td><td>${change}</td><td>${escapeHTML(p.window?.reset_at ? `${p.window.reset_estimated ? '~ ' : ''}${stamp(p.window.reset_at)}` : 'Unknown')}</td><td>${note}</td></tr>`;

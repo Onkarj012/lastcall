@@ -32,7 +32,7 @@ test('unchanged readings remain observed and drops use percentage points', () =>
 });
 
 test('failures, missing windows, inferred values and recording pauses break lines', () => {
-  for (const gap of [row(5,0,{failure:'fetch_failed'}),row(5,0,{windows:[]}),row(5,0,{windows:[{kind:'5h',left:0,inferred:true}]})]) {
+  for (const gap of [row(5,0,{failure:'fetch_failed'}),row(5,0,{failure:'account_disabled'}),row(5,0,{windows:[]}),row(5,0,{windows:[{kind:'5h',left:0,inferred:true}]})]) {
     const result=buildSeries([row(0,.6),gap,row(10,.4)],'5h');
     assert.equal(result.segments.length,2);
     assert.equal(result.drop,0);

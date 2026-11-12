@@ -29,7 +29,7 @@ func (s *Server) recordQuota(c cpa.Credential, r quota.Result) {
 	s.historyMu.Lock()
 	defer s.historyMu.Unlock()
 	p := quota.Provider(c.Provider)
-	if s.History == nil || (p != "claude" && p != "codex") {
+	if s.History == nil || s.historyDisabled[c.Name] || (p != "claude" && p != "codex") {
 		return
 	}
 	alias := history.AccountKey(c, quota.Result{})
@@ -44,6 +44,29 @@ func (s *Server) recordQuota(c cpa.Credential, r quota.Result) {
 		}
 	}
 	_ = s.History.Append(row) // The History page reports persistence errors; quota cards stay usable.
+}
+
+// recordAvailability saves a gap when a credential becomes disabled, even between polls.
+func (s *Server) recordAvailability(c cpa.Credential) {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	p := quota.Provider(c.Provider)
+	if s.History == nil || c.RuntimeOnly || (p != "claude" && p != "codex") {
+		return
+	}
+	if s.historyDisabled == nil {
+		s.historyDisabled = map[string]bool{}
+	}
+	previous := s.historyDisabled[c.Name]
+	s.historyDisabled[c.Name] = c.Disabled
+	if !c.Disabled || previous {
+		return
+	}
+	s.mu.Lock()
+	r := s.quota[c.Name]
+	s.mu.Unlock()
+	row := history.Record{Account: s.History.Key(c, r), Alias: history.AccountKey(c, quota.Result{}), Provider: p, At: time.Now(), Epoch: "automatic", Every: int(s.quotaEvery.Seconds()), Failure: "account_disabled"}
+	_ = s.History.Append(row)
 }
 
 // getHistory returns one bounded time range and deduplicated account choices.

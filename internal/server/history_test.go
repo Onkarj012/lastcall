@@ -211,3 +211,58 @@ func TestManualResetFetchIsRecorded(t *testing.T) {
 		t.Fatalf("rows=%d calls=%d err=%v", len(rows), calls.Load(), err)
 	}
 }
+
+// TestShortDisableRecordsBreak preserves a pause that fits between quota polls.
+func TestShortDisableRecordsBreak(t *testing.T) {
+	for _, action := range []string{"disable", "pause", "external"} {
+		t.Run(action, func(t *testing.T) {
+			s, _, _ := testServer(t)
+			c := s.creds[0]
+			var disabled atomic.Bool
+			fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					var body struct{ Disabled bool }
+					json.NewDecoder(r.Body).Decode(&body)
+					disabled.Store(body.Disabled)
+					w.Write([]byte(`{}`))
+					return
+				}
+				current := c
+				current.Disabled = disabled.Load()
+				json.NewEncoder(w).Encode(map[string]any{"files": []cpa.Credential{current}})
+			}))
+			defer fake.Close()
+			key := filepath.Join(t.TempDir(), "key")
+			os.WriteFile(key, []byte("fixture-only"), 0600)
+			s.cpa = cpa.New(fake.URL, key)
+			s.quotaAt = time.Now() // Keep credential reads from scheduling a provider sweep.
+			reset := time.Now().Add(time.Hour)
+			reading := quota.Result{At: time.Now().Add(-time.Minute), Plan: "Pro", Windows: []quota.Window{{ID: "five_hour", Kind: "5h", Left: .8, ResetAt: &reset}}}
+			s.recordQuota(c, reading)
+			var err error
+			switch action {
+			case "disable":
+				err = s.setDisabled(context.Background(), c.Name, true)
+			case "pause":
+				err = s.pause(context.Background(), c.Name, time.Now().Add(time.Minute))
+			case "external":
+				disabled.Store(true)
+				s.refreshCreds(context.Background())
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.recordQuota(c, reading) // A fetch finishing while disabled must not fill the gap.
+			if err := s.setDisabled(context.Background(), c.Name, false); err != nil {
+				t.Fatal(err)
+			}
+			reading.At = time.Now()
+			reading.Windows[0].Left = .6
+			s.recordQuota(c, reading)
+			rows, err := s.History.Read(time.Now())
+			if err != nil || len(rows) != 3 || rows[1].Failure != "account_disabled" || rows[1].Account != rows[0].Account || len(rows[1].Windows) != 0 {
+				t.Fatalf("short disable did not leave a gap: rows=%+v err=%v", rows, err)
+			}
+		})
+	}
+}

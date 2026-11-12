@@ -25,12 +25,13 @@ const (
 )
 
 type Server struct {
-	History    *history.Store
-	historyMu  sync.Mutex
-	cpaURL     string
-	cpa        *cpa.Client
-	st         *state.Store
-	quotaEvery time.Duration
+	History         *history.Store
+	historyMu       sync.Mutex
+	historyDisabled map[string]bool
+	cpaURL          string
+	cpa             *cpa.Client
+	st              *state.Store
+	quotaEvery      time.Duration
 
 	mu          sync.Mutex
 	creds       []cpa.Credential
@@ -79,6 +80,11 @@ func (s *Server) refreshCreds(ctx context.Context) {
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	creds, err := s.cpa.Credentials(cctx)
+	if err == nil {
+		for _, c := range creds {
+			s.recordAvailability(c)
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err != nil {
@@ -183,6 +189,8 @@ func (s *Server) pause(ctx context.Context, name string, until time.Time) error 
 		_ = s.st.Update(func(d *state.Data) { delete(d.Pauses, name) })
 		return err
 	}
+	c.Disabled = true
+	s.recordAvailability(c)
 	s.refreshCreds(ctx)
 	return nil
 }
@@ -215,6 +223,8 @@ func (s *Server) setDisabled(ctx context.Context, name string, disabled bool) er
 	if err := s.cpa.SetDisabled(ctx, c.Name, c.AuthIndex, disabled); err != nil {
 		return err
 	}
+	c.Disabled = disabled
+	s.recordAvailability(c)
 	// A manual on/off replaces any timed pause.
 	if err := s.st.Update(func(d *state.Data) { delete(d.Pauses, name) }); err != nil {
 		return err
