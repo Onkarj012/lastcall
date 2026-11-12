@@ -14,9 +14,32 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
+	"lastcall/internal/quota"
 	"lastcall/internal/state"
 	"lastcall/web"
 )
+
+// TestTodayHistory excludes yesterday's observations using the IST calendar day.
+func TestTodayHistory(t *testing.T) {
+	s, _, _ := testServer(t)
+	s.creds = nil
+	now := time.Now().In(time.FixedZone("IST", 19800))
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for _, at := range []time.Time{midnight.Add(-time.Minute), midnight} {
+		if err := s.History.Append(history.Record{Account: "today", Provider: "claude", At: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := httptest.NewRecorder()
+	s.getHistory(w, httptest.NewRequest("GET", "/api/history?range=today", nil))
+	var got struct{ Records []history.Record }
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || len(got.Records) != 1 || !got.Records[0].At.Equal(midnight) {
+		t.Fatal(w.Code, w.Body)
+	}
+}
 
 // testServer supplies provider-shaped responses without touching a real account.
 func testServer(t *testing.T) (*Server, *atomic.Int32, *atomic.Bool) {
@@ -50,6 +73,44 @@ func testServer(t *testing.T) (*Server, *atomic.Int32, *atomic.Bool) {
 	s.History = history.New(filepath.Join(dir, "history"))
 	s.creds = []cpa.Credential{{Name: "fixture.json", AuthIndex: "1", Provider: "claude", Email: "fixture@example.com"}}
 	return s, &calls, &fail
+}
+
+// TestCombinedHistory reads each unique account once without fetching provider data.
+func TestCombinedHistory(t *testing.T) {
+	s, calls, _ := testServer(t)
+	now := time.Now().Add(-time.Minute)
+	s.creds = nil
+	for i, provider := range []string{"claude", "codex"} {
+		for _, at := range []time.Time{now.Add(-5 * time.Minute), now} {
+			if err := s.History.Append(history.Record{Account: provider + "-account", Provider: provider, At: at, Plan: "Pro", Windows: []quota.Window{{Kind: "5h", Left: float64(i) / 2}}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		selection         string
+		records, accounts int
+	}{{"", 4, 2}, {"all", 4, 2}, {"claude", 2, 1}, {"codex", 2, 1}, {"codex-account", 2, 1}} {
+		w := httptest.NewRecorder()
+		s.getHistory(w, httptest.NewRequest("GET", "/api/history?account="+tc.selection, nil))
+		var got struct {
+			Account  string
+			Records  []history.Record
+			Selected []historyAccount
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Records) != tc.records || len(got.Selected) != tc.accounts {
+			t.Fatalf("selection %q: records=%d accounts=%d", tc.selection, len(got.Records), len(got.Selected))
+		}
+		if tc.selection == "" && got.Account != "all" {
+			t.Fatal("combined history must be the default")
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatal("viewing combined history fetched providers")
+	}
 }
 
 // TestRecorderUsesFreshFetch ensures failed refreshes do not save cached successes.
@@ -130,8 +191,11 @@ func TestHistoryEndpoints(t *testing.T) {
 	if w := request("GET", "/api/history?range=forever"); w.Code != 400 {
 		t.Fatal(w.Code)
 	}
-	if w := request("GET", "/history"); w.Code != 200 || !strings.Contains(w.Body.String(), "Usage history") || strings.Contains(w.Body.String(), "type=\"checkbox\"") {
+	if w := request("GET", "/history"); w.Code != 200 || !strings.Contains(w.Body.String(), "Quota history") || strings.Contains(w.Body.String(), "history_recording") {
 		t.Fatal(w.Code, w.Body)
+	}
+	if w := request("GET", "/pool.mjs"); w.Code != 200 || !strings.Contains(w.Body.String(), "export function buildPool") {
+		t.Fatal("pool module is missing from the embedded UI", w.Code)
 	}
 	if w := request("POST", "/api/history/settings"); w.Code == 200 {
 		t.Fatal("obsolete recording control still available")

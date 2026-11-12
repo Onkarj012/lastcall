@@ -52,9 +52,9 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, badRequest("history storage is unavailable"))
 		return
 	}
-	hours := map[string]int{"": 24, "24h": 24, "7d": 168, "30d": 720}[r.URL.Query().Get("range")]
+	hours := map[string]int{"": 24, "today": 24, "24h": 24, "7d": 168, "30d": 720}[r.URL.Query().Get("range")]
 	if hours == 0 {
-		writeErr(w, badRequest("range must be 24h, 7d, or 30d"))
+		writeErr(w, badRequest("range must be today, 24h, 7d, or 30d"))
 		return
 	}
 	s.historyMu.Lock()
@@ -88,15 +88,27 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	key := r.URL.Query().Get("account")
-	if key == "" && len(choices) > 0 {
-		key = choices[0].Key
+	if key == "" {
+		key = "all"
+	}
+	selectedAccounts := []historyAccount{}
+	selectedKeys := map[string]bool{}
+	for _, choice := range choices {
+		if key == "all" || key == choice.Key || key == choice.Provider {
+			selectedAccounts = append(selectedAccounts, choice)
+			selectedKeys[choice.Key] = true
+		}
 	}
 	selected := []history.Record{}
 	cutoff := now.Add(-time.Duration(hours) * time.Hour)
+	if r.URL.Query().Get("range") == "today" {
+		local := now.In(time.FixedZone("IST", 19800))
+		cutoff = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	}
 	for _, row := range rows {
-		if row.Account == key && !row.At.Before(cutoff) {
+		if selectedKeys[row.Account] && !row.At.Before(cutoff) {
 			selected = append(selected, row)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays})
+	writeJSON(w, http.StatusOK, map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "selected": selectedAccounts, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays})
 }
