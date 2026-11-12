@@ -47,8 +47,8 @@ func (s *Server) recordQuota(c cpa.Credential, r quota.Result) {
 	_ = s.History.Append(row) // The History page reports persistence errors; quota cards stay usable.
 }
 
-// recordAvailability saves a gap when a credential becomes disabled, even between polls.
-func (s *Server) recordAvailability(c cpa.Credential) {
+// recordAvailability saves a gap when the last enabled login for an account becomes disabled.
+func (s *Server) recordAvailability(c cpa.Credential, peers []cpa.Credential) {
 	s.historyMu.Lock()
 	defer s.historyMu.Unlock()
 	p := quota.Provider(c.Provider)
@@ -65,8 +65,23 @@ func (s *Server) recordAvailability(c cpa.Credential) {
 	}
 	s.mu.Lock()
 	r := s.quota[c.Name]
+	key := s.History.Key(c, r)
+	useSavedStatus := peers == nil
+	if useSavedStatus {
+		peers = s.creds
+	}
+	for _, other := range peers {
+		disabled := other.Disabled
+		if known, ok := s.historyDisabled[other.Name]; useSavedStatus && ok {
+			disabled = known
+		}
+		if other.Name != c.Name && !disabled && !other.RuntimeOnly && s.History.Key(other, s.quota[other.Name]) == key {
+			s.mu.Unlock()
+			return
+		}
+	}
 	s.mu.Unlock()
-	row := history.Record{Account: s.History.Key(c, r), Alias: history.AccountKey(c, quota.Result{}), Provider: p, At: time.Now(), Epoch: "automatic", Every: int(s.quotaEvery.Seconds()), Failure: "account_disabled"}
+	row := history.Record{Account: key, Alias: history.AccountKey(c, quota.Result{}), Provider: p, At: time.Now(), Epoch: "automatic", Every: int(s.quotaEvery.Seconds()), Failure: "account_disabled"}
 	_ = s.History.Append(row)
 }
 

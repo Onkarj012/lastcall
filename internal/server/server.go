@@ -82,7 +82,7 @@ func (s *Server) refreshCreds(ctx context.Context) {
 	creds, err := s.cpa.Credentials(cctx)
 	if err == nil {
 		for _, c := range creds {
-			s.recordAvailability(c)
+			s.recordAvailability(c, creds)
 		}
 	}
 	s.mu.Lock()
@@ -190,7 +190,7 @@ func (s *Server) pause(ctx context.Context, name string, until time.Time) error 
 		return err
 	}
 	c.Disabled = true
-	s.recordAvailability(c)
+	s.recordAvailability(c, nil)
 	s.refreshCreds(ctx)
 	return nil
 }
@@ -224,7 +224,7 @@ func (s *Server) setDisabled(ctx context.Context, name string, disabled bool) er
 		return err
 	}
 	c.Disabled = disabled
-	s.recordAvailability(c)
+	s.recordAvailability(c, nil)
 	// A manual on/off replaces any timed pause.
 	if err := s.st.Update(func(d *state.Data) { delete(d.Pauses, name) }); err != nil {
 		return err

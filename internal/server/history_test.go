@@ -328,3 +328,29 @@ func TestHistoryDownloadDoesNotBlockRecording(t *testing.T) {
 		t.Fatal("slow download blocked quota recording")
 	}
 }
+
+// TestDuplicateDisableKeepsSharedAccountFresh marks a gap only after every confirmed login is disabled.
+func TestDuplicateDisableKeepsSharedAccountFresh(t *testing.T) {
+	s, _, _ := testServer(t)
+	first := s.creds[0]
+	second := first
+	second.Name = "duplicate.json"
+	s.creds = append(s.creds, second)
+	reading := quota.Result{At: time.Now(), AccountScope: "same-org", Plan: "Pro"}
+	for _, c := range s.creds {
+		s.quota[c.Name] = reading
+		s.recordQuota(c, reading)
+	}
+	first.Disabled = true
+	s.recordAvailability(first, nil)
+	rows, err := s.History.Read(time.Now())
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("one disabled login broke the shared account: rows=%+v err=%v", rows, err)
+	}
+	second.Disabled = true
+	s.recordAvailability(second, nil)
+	rows, err = s.History.Read(time.Now())
+	if err != nil || len(rows) != 3 || rows[2].Failure != "account_disabled" || rows[2].Account != rows[0].Account {
+		t.Fatalf("last disabled login did not leave a gap: rows=%+v err=%v", rows, err)
+	}
+}
