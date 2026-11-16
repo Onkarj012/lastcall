@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"lastcall/internal/cpa"
+	"lastcall/internal/quota"
 )
 
 // peerSample creates a wire-compatible observation with a real account hash.
@@ -15,6 +18,38 @@ func peerSample(at time.Time) Record {
 	r := sample()
 	r.Version, r.Account, r.At = 1, strings.Repeat("a", 64), at
 	return r
+}
+
+// TestMergeUnconfirmedAliasKeepsKnownAccount preserves a confirmed scope across peer gaps and restarts.
+func TestMergeUnconfirmedAliasKeepsKnownAccount(t *testing.T) {
+	now := time.Now().UTC()
+	s := New(t.TempDir())
+	c := cpa.Credential{Provider: "claude", Name: "shared.json", Email: "fixture@example.com"}
+	alias := AccountKey(c, quota.Result{})
+	confirmed := AccountKey(c, quota.Result{AccountScope: "confirmed-org"})
+	r := peerSample(now)
+	r.Account, r.Alias = confirmed, alias
+	if err := s.Append(r); err != nil {
+		t.Fatal(err)
+	}
+	r.Account, r.At = alias, now.Add(time.Second)
+	day := r.At.Format("2006-01-02")
+	if _, err := s.MergeDay(day, []Record{r}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(s.dir)
+	rows, err := restarted.Read(now.Add(time.Second))
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	for _, row := range rows {
+		if row.Account != confirmed {
+			t.Fatal("peer observation split the confirmed account")
+		}
+	}
+	if restarted.Key(c, quota.Result{}) != confirmed {
+		t.Fatal("unconfirmed profile lost the confirmed account after restart")
+	}
 }
 
 // TestMergeDayRetryAndConcurrentRecording preserves local data and makes retries idempotent.

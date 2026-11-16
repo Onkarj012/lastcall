@@ -183,7 +183,8 @@ func (s *Store) Read(now time.Time) ([]Record, error) {
 			return nil, e
 		}
 		for _, r := range records {
-			if r.Alias != "" {
+			// A peer's missing profile scope must not erase an already confirmed identity.
+			if r.Alias != "" && (r.Account != r.Alias || s.keys[r.Alias] == "") {
 				s.keys[r.Alias] = r.Account
 			}
 			if r.At.After(s.status.LastSaved) {
