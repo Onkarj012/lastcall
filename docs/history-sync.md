@@ -85,11 +85,15 @@ one minute. The page reads saved observations and does not force a provider poll
 Only differing UTC days transfer. A day is merged atomically under the same lock as local recording;
 retries keep each identical observation once. Readings taken independently at different times remain
 separate observations of the same account, which still counts once in the pool. Confirmed identities
-merge across machines. Unconfirmed logins may remain separate until their provider scope is known.
+merge across machines. A persistent random `.recorder-id` inside the history directory keeps
+unconfirmed Claude logins and their profile mappings separate by machine until their provider scope
+is known. Keep that file with its machine's history; do not copy it to another recorder. Existing local
+rows are attributed to that recorder when exported, without changing their original account keys.
 An account absent from the local CPA appears under Removed accounts, as existing history does, and
 does not count toward the local current pool.
 
-Each daily file and transfer is bounded to 32 MiB. Oversized, corrupt, incompatible, or invalid imports
+Each day holds up to 32 MiB of observations, with a 64 MiB file bound to leave space for recorder IDs.
+Transfers allow a further 128 bytes for the JSON envelope. Oversized, corrupt, incompatible, or invalid imports
 report a sync failure without replacing the local day. Both peers should run this protocol version.
 Concurrent new readings can require another pass before fingerprints match.
 

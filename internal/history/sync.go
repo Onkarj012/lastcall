@@ -2,6 +2,7 @@ package history
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,77 @@ import (
 	"strings"
 	"time"
 )
+
+// EnableSync persists a recorder identity and scopes legacy local aliases before exchanging history.
+func (s *Store) EnableSync() error {
+	s.mu.Lock()
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	path := filepath.Join(s.dir, ".recorder-id")
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		id := make([]byte, 32)
+		if _, err = rand.Read(id); err == nil {
+			raw = []byte(hex.EncodeToString(id))
+			var f *os.File
+			f, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+			if err == nil {
+				_, err = f.Write(raw)
+				if err == nil {
+					err = f.Sync()
+				}
+				if closeErr := f.Close(); err == nil {
+					err = closeErr
+				}
+			}
+		}
+	}
+	if err == nil && !validKey(string(raw)) {
+		err = errors.New("invalid recorder identity")
+	}
+	if err == nil {
+		s.origin = string(raw)
+		s.keys = map[string]string{}
+	}
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	// Corrupt daily files remain a history error rather than blocking live quota cards.
+	_, _ = s.Read(time.Now())
+	return nil
+}
+
+// recorderAlias confines profile mappings to the recorder that observed them.
+func recorderAlias(origin, alias string) string {
+	return origin + "\x00" + alias
+}
+
+// unconfirmedKey separates unknown Claude organizations across recorders.
+func unconfirmedKey(origin, alias string) string {
+	if origin == "" {
+		return alias
+	}
+	sum := sha256.Sum256([]byte(recorderAlias(origin, alias)))
+	return hex.EncodeToString(sum[:])
+}
+
+// unconfirmed recognizes both legacy and recorder-scoped Claude fallback identities.
+func unconfirmed(r Record) bool {
+	return r.Provider == "claude" && r.Alias != "" && (r.Account == r.Alias || r.Account == unconfirmedKey(r.Origin, r.Alias))
+}
+
+// localOrigins attributes older source-less rows to this recorder without changing their account keys.
+func (s *Store) localOrigins(rows []Record) []Record {
+	for i := range rows {
+		if rows[i].Origin == "" {
+			rows[i].Origin = s.origin
+		}
+	}
+	return rows
+}
 
 // Manifest fingerprints retained daily observations without reconciling their stored identities.
 func (s *Store) Manifest(now time.Time) (map[string]string, error) {
@@ -31,7 +103,7 @@ func (s *Store) Manifest(now time.Time) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		raw, err := encodeDay(rows)
+		raw, err := encodeDay(s.localOrigins(rows))
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +130,7 @@ func (s *Store) Day(day string, now time.Time) ([]Record, error) {
 		return nil, errors.New("day is outside history retention")
 	}
 	rows, _, err := readFile(filepath.Join(s.dir, day+".jsonl"))
-	return rows, err
+	return s.localOrigins(rows), err
 }
 
 // MergeDay atomically unions one retained day with peer observations while serializing local writes.
@@ -69,7 +141,7 @@ func (s *Store) MergeDay(day string, incoming []Record, now time.Time) ([]Record
 		return nil, errors.New("day is outside history retention")
 	}
 	for _, r := range incoming {
-		if r.Version != 1 || r.At.UTC().Format("2006-01-02") != day || r.At.After(now.Add(5*time.Minute)) || !validPeerRecord(r) {
+		if r.Version != 1 || s.origin != "" && r.Origin == "" || r.At.UTC().Format("2006-01-02") != day || r.At.After(now.Add(5*time.Minute)) || !validPeerRecord(r) {
 			return nil, errors.New("invalid peer observation")
 		}
 	}
@@ -78,6 +150,7 @@ func (s *Store) MergeDay(day string, incoming []Record, now time.Time) ([]Record
 	if err != nil {
 		return nil, err
 	}
+	rows = s.localOrigins(rows)
 	before, err := encodeDay(rows)
 	if err != nil {
 		return nil, err
@@ -86,7 +159,15 @@ func (s *Store) MergeDay(day string, incoming []Record, now time.Time) ([]Record
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > maxFileSize {
+	merged, err := decodeDay(raw)
+	if err != nil {
+		return nil, err
+	}
+	size, err := observationBytes(merged)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxFileSize || size > maxObservationBytes {
 		return nil, errors.New("history file limit reached")
 	}
 	if !bytes.Equal(before, raw) {
@@ -118,12 +199,26 @@ func (s *Store) MergeDay(day string, incoming []Record, now time.Time) ([]Record
 			return nil, err
 		}
 	}
-	return decodeDay(raw)
+	return merged, nil
+}
+
+// observationBytes counts quota data independently of the recorder IDs added to legacy rows.
+func observationBytes(rows []Record) (int, error) {
+	size := 0
+	for _, r := range rows {
+		r.Origin = ""
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return 0, err
+		}
+		size += len(raw) + 1
+	}
+	return size, nil
 }
 
 // validPeerRecord bounds peer metadata and admits only the fields used by quota history.
 func validPeerRecord(r Record) bool {
-	if !validKey(r.Account) || r.Alias != "" && !validKey(r.Alias) || (r.Provider != "claude" && r.Provider != "codex") || r.At.IsZero() || r.Every <= 0 || r.Every > 86400 || len(r.Epoch) > 128 || len(r.Plan) > 128 || len(r.Windows) > 8 {
+	if !validKey(r.Account) || r.Origin != "" && !validKey(r.Origin) || r.Alias != "" && !validKey(r.Alias) || (r.Provider != "claude" && r.Provider != "codex") || r.At.IsZero() || r.Every < 0 || len(r.Epoch) > 128 || len(r.Plan) > 128 || len(r.Windows) > 8 {
 		return false
 	}
 	if r.Failure != "" && r.Failure != "fetch_failed" && r.Failure != "account_disabled" {

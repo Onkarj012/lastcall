@@ -20,10 +20,15 @@ import (
 )
 
 const RetentionDays = 30
-const maxFileSize = 32 << 20
+
+// MaxDayBytes includes recorder metadata around at most 32 MiB of observations.
+const MaxDayBytes = 64 << 20
+const maxFileSize = MaxDayBytes
+const maxObservationBytes = 32 << 20
 
 type Record struct {
 	Version  int            `json:"v"`
+	Origin   string         `json:"origin,omitempty"`
 	Alias    string         `json:"alias,omitempty"`
 	Account  string         `json:"account"`
 	Provider string         `json:"provider"`
@@ -45,11 +50,15 @@ type Store struct {
 	dir    string
 	status Status
 	keys   map[string]string
+	origin string
 }
 
 // New keeps history beside the state file and creates nothing until the first write.
 func New(dir string) *Store {
 	s := &Store{dir: dir, keys: map[string]string{}}
+	if raw, err := os.ReadFile(filepath.Join(dir, ".recorder-id")); err == nil && validKey(string(raw)) {
+		s.origin = string(raw)
+	}
 	// Read failures are reported by the history endpoint and can clear after a file repair.
 	_, _ = s.Read(time.Now())
 	return s
@@ -60,13 +69,17 @@ func (s *Store) Key(c cpa.Credential, r quota.Result) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	alias := AccountKey(c, quota.Result{})
+	cacheKey := recorderAlias(s.origin, alias)
 	key := AccountKey(c, r)
-	if r.AccountScope == "" {
-		if known := s.keys[alias]; known != "" {
+	if r.AccountScope == "" || quota.Provider(c.Provider) == "claude" && key == alias {
+		if known := s.keys[cacheKey]; known != "" {
 			return known
 		}
+		if quota.Provider(c.Provider) == "claude" {
+			return unconfirmedKey(s.origin, alias)
+		}
 	}
-	s.keys[alias] = key
+	s.keys[cacheKey] = key
 	return key
 }
 
@@ -109,6 +122,9 @@ func (s *Store) Expire(now time.Time) {
 func (s *Store) Append(r Record) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if r.Origin == "" {
+		r.Origin = s.origin
+	}
 	err := s.append(r)
 	if err != nil {
 		s.status.Error = "History could not be saved. Check the history directory and disk space."
@@ -128,7 +144,7 @@ func (s *Store) append(r Record) error {
 		return err
 	}
 	path := filepath.Join(s.dir, r.At.UTC().Format("2006-01-02")+".jsonl")
-	_, valid, err := readFile(path)
+	rows, valid, err := readFile(path)
 	if err != nil {
 		return err
 	}
@@ -148,7 +164,11 @@ func (s *Store) append(r Record) error {
 	if err != nil {
 		return err
 	}
-	if valid+len(raw)+1 > maxFileSize {
+	size, err := observationBytes(append(rows, r))
+	if err != nil {
+		return err
+	}
+	if valid+len(raw)+1 > maxFileSize || size > maxObservationBytes {
 		return errors.New("history file limit reached")
 	}
 	if _, err := f.Write(append(raw, '\n')); err != nil {
@@ -183,9 +203,12 @@ func (s *Store) Read(now time.Time) ([]Record, error) {
 			return nil, e
 		}
 		for _, r := range records {
+			if r.Origin == "" {
+				r.Origin = s.origin
+			}
 			// A peer's missing profile scope must not erase an already confirmed identity.
-			if r.Alias != "" && (r.Account != r.Alias || s.keys[r.Alias] == "") {
-				s.keys[r.Alias] = r.Account
+			if r.Alias != "" && !unconfirmed(r) {
+				s.keys[recorderAlias(r.Origin, r.Alias)] = r.Account
 			}
 			if r.At.After(s.status.LastSaved) {
 				s.status.LastSaved = r.At
@@ -196,8 +219,12 @@ func (s *Store) Read(now time.Time) ([]Record, error) {
 		}
 	}
 	for i := range rows {
-		if rows[i].Account == rows[i].Alias && s.keys[rows[i].Alias] != "" {
-			rows[i].Account = s.keys[rows[i].Alias]
+		if unconfirmed(rows[i]) {
+			if known := s.keys[recorderAlias(rows[i].Origin, rows[i].Alias)]; known != "" {
+				rows[i].Account = known
+			} else {
+				rows[i].Account = unconfirmedKey(rows[i].Origin, rows[i].Alias)
+			}
 		}
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].At.Before(rows[j].At) })

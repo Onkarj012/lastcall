@@ -22,7 +22,8 @@ import (
 	"lastcall/internal/history"
 )
 
-const maxDayBytes = 32 << 20
+// The JSON envelope adds fewer than 128 bytes to a canonical JSONL day.
+const maxDayBytes = history.MaxDayBytes + 128
 
 type Config struct {
 	Listen    string `json:"listen"`
@@ -79,6 +80,9 @@ func Open(path string, store *history.Store) (*Sync, error) {
 	token := strings.TrimSpace(string(raw))
 	if len(token) < 32 || len(token) > 256 || strings.ContainsAny(token, " \t\r\n") {
 		return nil, errors.New("sync token must contain 32 to 256 characters without whitespace")
+	}
+	if err := store.EnableSync(); err != nil {
+		return nil, errors.New("cannot initialize history recorder identity")
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil // Peer tokens must never pass through an environment HTTP proxy.

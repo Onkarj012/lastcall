@@ -1,6 +1,7 @@
 package historysync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"lastcall/internal/history"
+	"lastcall/internal/quota"
 )
 
 // testSync opens the production config path with isolated history and a fixture token.
@@ -36,6 +38,54 @@ func testSync(t *testing.T, peer string) *Sync {
 	}
 	t.Cleanup(s.client.CloseIdleConnections)
 	return s
+}
+
+// TestFullLegacyDaySyncs leaves room for both recorder metadata and the wire envelope in both directions.
+func TestFullLegacyDaySyncs(t *testing.T) {
+	remote := testSync(t, "http://127.0.0.1:1")
+	server := httptest.NewServer(remote.Handler())
+	defer server.Close()
+	local := testSync(t, server.URL)
+	now := time.Now().UTC()
+	r := history.Record{Version: 1, Account: strings.Repeat("a", 64), Provider: "claude", At: now, Epoch: strings.Repeat("e", 128), Every: 300, Plan: strings.Repeat("p", 128)}
+	for range 8 {
+		r.Windows = append(r.Windows, quota.Window{Kind: "5h", Name: strings.Repeat("w", 128), Left: .5})
+	}
+	var file bytes.Buffer
+	limit := 32 << 20
+	for i := 0; ; i++ {
+		r.At = now.Add(-time.Duration(i) * time.Nanosecond)
+		line, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if file.Len()+len(line)+1 > limit {
+			break
+		}
+		file.Write(line)
+		file.WriteByte('\n')
+	}
+	// Pad valid JSON whitespace so the legacy daily file reaches its exact old limit.
+	padding := limit - file.Len()
+	raw := file.Bytes()
+	raw = append(raw[:len(raw)-1], bytes.Repeat([]byte{' '}, padding)...)
+	raw = append(raw, '\n')
+	if err := os.WriteFile(filepath.Join(filepath.Dir(local.config.TokenFile), "history", now.Format("2006-01-02")+".jsonl"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	local.RunOnce(context.Background())
+	if local.Status().Error != "" {
+		t.Fatal(local.Status().Error)
+	}
+	a, _ := local.store.Manifest(now)
+	b, _ := remote.store.Manifest(now)
+	if !reflect.DeepEqual(a, b) {
+		t.Fatal("full legacy day did not converge")
+	}
+	local.RunOnce(context.Background())
+	if local.Status().Error != "" {
+		t.Fatal("full day could not be retried")
+	}
 }
 
 // seed saves distinct observations without involving CPA or provider accounts.

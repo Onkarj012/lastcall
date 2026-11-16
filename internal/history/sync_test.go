@@ -20,6 +20,113 @@ func peerSample(at time.Time) Record {
 	return r
 }
 
+// TestEnableSyncPreservesHistoryErrors initializes identity without making corrupt history block startup.
+func TestEnableSyncPreservesHistoryErrors(t *testing.T) {
+	now := time.Now()
+	s := New(t.TempDir())
+	if err := os.WriteFile(filepath.Join(s.dir, now.UTC().Format("2006-01-02")+".jsonl"), []byte("corrupt\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EnableSync(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(now); err == nil {
+		t.Fatal("daily-file corruption was hidden")
+	}
+	if New(s.dir).origin != s.origin {
+		t.Fatal("recorder identity was not retained")
+	}
+}
+
+// TestRecorderAliasesSeparateOrganizations keeps legacy and new unknown readings with their own profile source.
+func TestRecorderAliasesSeparateOrganizations(t *testing.T) {
+	now := time.Now().UTC()
+	c := cpa.Credential{Provider: "claude", Name: "same.json", Email: "same@example.com"}
+	alias := AccountKey(c, quota.Result{})
+	mac, hp := New(t.TempDir()), New(t.TempDir())
+	for _, s := range []*Store{mac, hp} {
+		r := peerSample(now)
+		r.Account, r.Alias = alias, alias
+		if err := s.Append(r); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.EnableSync(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	macKey := mac.Key(c, quota.Result{AccountScope: "mac-org"})
+	r := peerSample(now)
+	r.Account, r.Alias = macKey, alias
+	if err := mac.Append(r); err != nil {
+		t.Fatal(err)
+	}
+	day := now.Format("2006-01-02")
+	remote, _ := hp.Day(day, now)
+	if _, err := mac.MergeDay(day, remote, now); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := mac.Read(now)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	unknownHP := hp.Key(c, quota.Result{})
+	if unknownHP == macKey || unknownHP == alias {
+		t.Fatal("HP fallback was not recorder-scoped")
+	}
+	for _, row := range rows {
+		want := macKey
+		if row.Origin == hp.origin {
+			want = unknownHP
+		}
+		if row.Account != want {
+			t.Fatalf("cross-machine profile reassignment: got %s want %s", row.Account, want)
+		}
+	}
+	hpKey := hp.Key(c, quota.Result{AccountScope: "hp-org"})
+	r.Account = hpKey
+	if err := hp.Append(r); err != nil {
+		t.Fatal(err)
+	}
+	remote, _ = hp.Day(day, now)
+	if _, err := mac.MergeDay(day, remote, now); err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(mac.dir)
+	rows, _ = restarted.Read(now)
+	for _, row := range rows {
+		want := macKey
+		if row.Origin == hp.origin {
+			want = hpKey
+		}
+		if row.Account != want {
+			t.Fatal("restart mixed organizations")
+		}
+	}
+	if restarted.Key(c, quota.Result{}) != macKey {
+		t.Fatal("peer profile replaced the local fallback")
+	}
+	if hp.Key(c, quota.Result{AccountScope: "mac-org"}) != macKey {
+		t.Fatal("confirmed account keys did not merge across recorders")
+	}
+}
+
+// TestPeerIntervalsAcceptRecordedValues retains intervals already accepted by local quota recording.
+func TestPeerIntervalsAcceptRecordedValues(t *testing.T) {
+	now := time.Now().UTC()
+	s := New(t.TempDir())
+	for _, every := range []int{0, 90000, int(time.Duration(1<<63-1) / time.Second)} {
+		r := peerSample(now)
+		r.Every = every
+		if _, err := s.MergeDay(now.Format("2006-01-02"), []Record{r}, now); err != nil {
+			t.Fatalf("every=%d: %v", every, err)
+		}
+	}
+	rows, _ := s.Read(now)
+	if len(rows) != 3 {
+		t.Fatal("accepted intervals lost readings")
+	}
+}
+
 // TestMergeUnconfirmedAliasKeepsKnownAccount preserves a confirmed scope across peer gaps and restarts.
 func TestMergeUnconfirmedAliasKeepsKnownAccount(t *testing.T) {
 	now := time.Now().UTC()
