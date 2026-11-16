@@ -15,11 +15,13 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
+	"lastcall/internal/historysync"
 	"lastcall/internal/server"
 	"lastcall/internal/state"
 	"lastcall/web"
 )
 
+// main starts local recording and optional history sync with independent listeners.
 func main() {
 	home, _ := os.UserHomeDir()
 	listen := flag.String("listen", "127.0.0.1:8318", "address to serve the UI on (keep it loopback)")
@@ -27,6 +29,7 @@ func main() {
 	keyPath := flag.String("key", filepath.Join(home, ".config/lastcall/management-key"), "file holding the CPA management key")
 	statePath := flag.String("state", filepath.Join(home, "Library/Application Support/lastcall/state.json"), "lastcall state file")
 	quotaEvery := flag.Duration("quota-every", 5*time.Minute, "how often to poll provider quota")
+	syncConfig := flag.String("sync-config", "", "optional config file for automatic history sync over Tailscale (off by default)")
 	flag.Parse()
 
 	if host, _, err := net.SplitHostPort(*listen); err == nil {
@@ -41,9 +44,22 @@ func main() {
 	}
 	srv := server.New(*cpaURL, cpa.New(*cpaURL, *keyPath), st, *quotaEvery)
 	srv.History = history.New(filepath.Join(filepath.Dir(*statePath), "history"))
+	if *syncConfig != "" {
+		srv.Sync, err = historysync.Open(*syncConfig, srv.History)
+		if err != nil {
+			log.Fatalf("history sync: %v", err)
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if srv.Sync != nil {
+		go func() {
+			if err := srv.Sync.Run(ctx); err != nil {
+				log.Printf("history sync: %v; local recording continues", err)
+			}
+		}()
+	}
 	go srv.Run(ctx)
 
 	hs := &http.Server{Addr: *listen, Handler: srv.Handler(web.FS), ReadHeaderTimeout: 10 * time.Second}
