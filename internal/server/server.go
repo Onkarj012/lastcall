@@ -13,6 +13,7 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
+	"lastcall/internal/historysync"
 	"lastcall/internal/quota"
 	"lastcall/internal/state"
 )
@@ -26,6 +27,7 @@ const (
 
 type Server struct {
 	History         *history.Store
+	Sync            *historysync.Sync
 	historyMu       sync.Mutex
 	historyDisabled map[string]bool
 	cpaURL          string

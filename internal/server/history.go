@@ -8,6 +8,7 @@ import (
 
 	"lastcall/internal/cpa"
 	"lastcall/internal/history"
+	"lastcall/internal/historysync"
 	"lastcall/internal/quota"
 )
 
@@ -148,7 +149,11 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 			selected = append(selected, row)
 		}
 	}
-	response := map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "read_error": readError, "accounts": choices, "selected": selectedAccounts, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays}
+	syncStatus := historysync.Status{}
+	if s.Sync != nil {
+		syncStatus = s.Sync.Status()
+	}
+	response := map[string]any{"quota_every_s": int(s.quotaEvery.Seconds()), "status": s.History.Status(), "sync": syncStatus, "read_error": readError, "accounts": choices, "selected": selectedAccounts, "account": key, "records": selected, "now": now, "retention_days": history.RetentionDays}
 	s.historyMu.Unlock()
 	writeJSON(w, http.StatusOK, response)
 }

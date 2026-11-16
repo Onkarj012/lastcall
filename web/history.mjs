@@ -356,6 +356,7 @@ function startPage() {
     $('reset-time').textContent = !combined && reset ? `Reported reset ${latest.window.reset_estimated ? '~ ' : ''}${stamp(reset)}` : '';
     $('saved-status').textContent = measured.length ? `${measured.length} readings · ${choices.length} ${choices.length === 1 ? 'account' : 'accounts'}` : 'Readings save automatically';
     $('poll-note').textContent = `Saved every ${Math.round(data.quota_every_s/60)} min · 30-day retention`;
+    if (data.sync?.enabled) $('poll-note').textContent += ` · ${data.sync.error || (data.sync.last_success ? `Synced ${stamp(data.sync.last_success)}` : 'Sync waiting for peer')}`;
     $('reading-count').textContent = `${data.records.length} polls`;
     $('readings').innerHTML = series.observations.slice(-100).reverse().map(p => {
       const note = p.row.failure === 'account_disabled' ? 'Account disabled; recording gap' : p.row.failure ? 'Poll failed' : !p.window ? 'Window not reported' : p.window.inferred ? 'Inferred; excluded from chart' : 'Measured';

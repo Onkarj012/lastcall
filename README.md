@@ -64,6 +64,7 @@ The UI is embedded in the binary. To run lastcall in the background and start it
 | `-key` | `~/.config/lastcall/management-key` | File holding the CPA management key. Re-read when it changes. |
 | `-state` | `~/Library/Application Support/lastcall/state.json` | Pins and timed pauses. |
 | `-quota-every` | `5m` | Provider quota poll interval. |
+| `-sync-config` | Off | Config file for automatic history sync over Tailscale. See [setup](docs/history-sync.md). |
 
 ## How it talks to CPA
 
@@ -102,8 +103,10 @@ History is account-wide and can include use from other machines and apps. Confir
 share one series. Missing account identity stays separate until a confirmed mapping is available.
 Removed accounts stay under "Removed accounts" for history, without counting in current provider pools.
 One recorder can observe shared account quota used on both Mac and HP if it can access those accounts.
-Running Lastcall on both machines creates separate local histories; they do not sync. There is no device
-or model attribution or combined token budget.
+Running Lastcall on both machines creates separate local histories by default. Optional
+[Tailscale sync](docs/history-sync.md) exchanges missing quota observations every minute while both
+machines are online. Local recording continues while the peer is offline, with catch-up on reconnection.
+There is no device or model attribution or combined token budget.
 
 **Forecast** starts off. Enable it to estimate future balance from recent drain. Estimates require
 at least 15 minutes of comparable recent readings from every account. Dashed lines assume recent drain
