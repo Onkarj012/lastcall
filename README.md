@@ -3,10 +3,10 @@
 A local usage page and account switchboard for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) (CPA) v8.
 
 If you run several Claude, Codex, Antigravity or Grok subscriptions through CPA, lastcall shows how much
-of each one is left, combines accounts per provider, and lets you pause, disable, enable, re-login and
+of each one is left, combines accounts per provider, and lets you pause, disable, enable, reconnect, replace, remove logins and
 spend banked limit resets without opening CPA's management panel.
 
-It is a read-mostly companion. Inference still goes straight to CPA; lastcall never edits CPA's config,
+It is a read-mostly companion. Inference still goes straight to CPA; lastcall manages credentials through CPA's management API,
 and the full panel stays at `/management.html`.
 
 ## Features
@@ -20,7 +20,8 @@ and the full panel stays at `/management.html`.
 - **Banked resets.** Claude grants and Codex reset credits show their count; the popup lists each one with
   its expiry and can spend one (with a confirm).
 - **Quota history.** A separate `/history` page automatically saves Claude and Codex allowance readings. Watch Claude and Codex accounts together, with 5-hour and weekly readings from today, 7 days, or 30 days.
-- **Login.** Add an account or re-login an existing one through CPA's OAuth flow.
+- **Accounts.** Add a login, reconnect the same account, replace it with a different account, or remove a saved login. Replacement keeps the old login until the new identity is verified and you confirm it. Removing a login keeps recorded history.
+- **Antigravity groups.** Gemini and Claude/GPT quotas each show their own 5-hour and weekly remaining allowance. Partial responses show a warning; unavailable limits are not assumed to be full.
 
 | Provider | Quota source | Banked resets |
 |---|---|---|
@@ -75,7 +76,8 @@ Every call goes through the Go backend; the browser never sees the management ke
 | Accounts and status | `GET /credentials`, every 15 s |
 | Quota and resets | `POST /requests/api-call` → each provider's usage API with the account's own token, every 5 min (Refresh forces it, 30 s minimum gap) |
 | Disable, enable, timed pause | `PATCH /credentials/status` |
-| Login and re-login | `GET /oauth/auth-url?is_webui=true`, `GET /oauth/status` |
+| Add, reconnect and replace | `GET /oauth/auth-url?is_webui=true`, `GET /oauth/status`; confirmed replacement removes the selected old credential |
+| Remove a saved login | `DELETE /credentials?name=…` |
 
 Endpoint contracts and their sources are in [docs/api-contracts.md](docs/api-contracts.md).
 

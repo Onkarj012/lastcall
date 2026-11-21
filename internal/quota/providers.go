@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -269,10 +270,12 @@ func planFromToken(cred cpa.Credential) string {
 // ---- Antigravity: cloudcode-pa retrieveUserQuotaSummary ----
 
 var antigravityHosts = []string{
+	"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
-	"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 }
+
+const antigravityPlanURL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 
 func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, error) {
 	if cred.ProjectID == "" {
@@ -281,13 +284,17 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 	h := map[string]string{
 		"Authorization": "Bearer $TOKEN$",
 		"Content-Type":  "application/json",
-		"User-Agent":    "antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)",
+		"User-Agent":    "antigravity/hub/2.23.0 darwin/arm64",
 	}
 	body, _ := json.Marshal(map[string]string{"project": cred.ProjectID})
 	var out struct {
 		Groups []struct {
+			ID          string `json:"id"`
+			GroupID     string `json:"groupId"`
 			DisplayName string `json:"displayName"`
 			Buckets     []struct {
+				ID                string          `json:"id"`
+				BucketID          string          `json:"bucketId"`
 				DisplayName       string          `json:"displayName"`
 				Window            string          `json:"window"`
 				ResetTime         json.RawMessage `json:"resetTime"`
@@ -296,41 +303,106 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 		} `json:"groups"`
 	}
 	var lastErr error
+	var r Result
+	seenBuckets := make(map[string]bool)
+	seenGemini := false
+	hadSuccess := false
 	for _, u := range antigravityHosts {
 		out.Groups = nil
-		if lastErr = call(ctx, c, cred.AuthIndex, "POST", u, h, string(body), &out); lastErr == nil && len(out.Groups) > 0 {
+		err := call(ctx, c, cred.AuthIndex, "POST", u, h, string(body), &out)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		hadSuccess = true
+		for _, g := range out.Groups {
+			groupName := strings.TrimSpace(g.DisplayName)
+			groupID := firstNonEmpty(g.ID, g.GroupID, strings.ToLower(groupName))
+			for _, b := range g.Buckets {
+				bucketID := firstNonEmpty(b.BucketID, b.ID)
+				if bucketID == "" {
+					continue
+				}
+				key := groupID + "\x00" + bucketID
+				if seenBuckets[key] {
+					continue
+				}
+				// A missing proto fraction is the proto3 default (zero) only when
+				// the bucket itself has a stable identity. Explicit null is invalid.
+				left := float64(0)
+				if len(b.RemainingFraction) != 0 {
+					if string(b.RemainingFraction) == "null" {
+						continue
+					}
+					var ok bool
+					left, ok = num(b.RemainingFraction)
+					if !ok {
+						continue
+					}
+				}
+				var percent string
+				if json.Unmarshal(b.RemainingFraction, &percent) == nil && strings.HasSuffix(strings.TrimSpace(percent), "%") || left > 1 {
+					left /= 100
+				}
+				if math.IsNaN(left) || math.IsInf(left, 0) || left < 0 || left > 1 {
+					continue
+				}
+				kind := "other"
+				switch strings.ToLower(b.Window) {
+				case "5h", "five-hour", "five_hour":
+					kind = "5h"
+				case "weekly", "week":
+					kind = "week"
+				}
+				name := strings.TrimSpace(b.DisplayName)
+				if name == "" {
+					name = groupName
+				}
+				r.Windows = append(r.Windows, Window{ID: bucketID, GroupID: groupID, Group: groupName, Name: name, Kind: kind, Left: clamp01(left), ResetAt: instant(b.ResetTime)})
+				seenBuckets[key] = true
+				if strings.HasPrefix(strings.ToLower(bucketID), "gemini-") {
+					seenGemini = true
+				}
+			}
+		}
+		if seenGemini {
 			break
 		}
 	}
-	if len(out.Groups) == 0 {
+	if !hadSuccess {
 		if lastErr == nil {
 			lastErr = fmt.Errorf("no quota groups returned")
 		}
 		return Result{}, lastErr
 	}
-	var r Result
-	for _, g := range out.Groups {
-		for _, b := range g.Buckets {
-			left, ok := num(b.RemainingFraction)
-			if !ok {
-				continue
-			}
-			if left > 1 { // "42%" style strings arrive as 42
-				left /= 100
-			}
-			kind := "other"
-			switch strings.ToLower(b.Window) {
-			case "5h", "five-hour", "five_hour":
-				kind = "5h"
-			case "weekly", "week":
-				kind = "week"
-			}
-			label := map[string]string{"5h": "5-hour", "week": "Weekly"}[kind]
-			name := strings.TrimSpace(firstNonEmpty(g.DisplayName, b.DisplayName))
-			if label != "" {
-				name = label + " · " + name
-			}
-			r.Windows = append(r.Windows, Window{Name: name, Kind: kind, Left: clamp01(left), ResetAt: instant(b.ResetTime)})
+	if len(r.Windows) == 0 {
+		return r, fmt.Errorf("no usable quota windows returned")
+	}
+	if !seenGemini {
+		r.Warning = "Gemini quota is unavailable. Showing only the groups Antigravity returned."
+	}
+	// Plan lookup is supplemental; a failure must not discard quota windows.
+	var plan struct {
+		PaidTier *struct {
+			Name string `json:"name"`
+			ID   string `json:"id"`
+		} `json:"paidTier"`
+		CurrentTier *struct {
+			Name string `json:"name"`
+			ID   string `json:"id"`
+		} `json:"currentTier"`
+	}
+	var planBody struct {
+		Metadata map[string]string `json:"metadata"`
+	}
+	planBody.Metadata = map[string]string{"ideType": "ANTIGRAVITY"}
+	planData, _ := json.Marshal(planBody)
+	if call(ctx, c, cred.AuthIndex, "POST", antigravityPlanURL, h, string(planData), &plan) == nil {
+		if plan.PaidTier != nil {
+			r.Plan = firstNonEmpty(plan.PaidTier.Name, plan.PaidTier.ID)
+		}
+		if r.Plan == "" && plan.CurrentTier != nil {
+			r.Plan = firstNonEmpty(plan.CurrentTier.Name, plan.CurrentTier.ID)
 		}
 	}
 	return r, nil

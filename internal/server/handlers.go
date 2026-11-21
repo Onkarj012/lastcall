@@ -16,6 +16,7 @@ import (
 )
 
 type accountView struct {
+	RuntimeOnly    bool          `json:"runtime_only"`
 	Name           string        `json:"name"`
 	AuthIndex      string        `json:"auth_index"`
 	Provider       string        `json:"provider"`
@@ -64,7 +65,7 @@ func (s *Server) snapshot() snapshot {
 	}
 	for _, c := range s.creds {
 		v := accountView{
-			Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
+			RuntimeOnly: c.RuntimeOnly, Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
 			Label:  firstNonEmpty(c.Email, c.Label, strings.TrimSuffix(c.Name, ".json")),
 			Status: c.Status, StatusMessage: c.StatusMessage, Disabled: c.Disabled, Unavailable: c.Unavailable,
 			NextRetryAfter: c.NextRetryAfter, Priority: c.Priority, Success: c.Success, Failed: c.Failed,
@@ -150,26 +151,10 @@ func (s *Server) Handler(ui fs.FS) http.Handler {
 		})
 	}))
 
-	mux.HandleFunc("POST /api/oauth/start", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		var body struct {
-			Provider string `json:"provider"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Provider == "" {
-			return nil, badRequest("oauth needs {provider}")
-		}
-		return s.cpa.StartOAuth(ctx, body.Provider)
-	}))
-	mux.HandleFunc("GET /api/oauth/status", func(w http.ResponseWriter, r *http.Request) {
-		st, err := s.cpa.OAuthStatus(r.Context(), r.URL.Query().Get("state"))
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		if st.Status == "ok" {
-			s.refreshCreds(r.Context())
-		}
-		writeJSON(w, http.StatusOK, st)
-	})
+	mux.HandleFunc("POST /api/oauth/start", s.act(s.startAccountOAuth))
+	mux.HandleFunc("GET /api/oauth/status", s.accountOAuthStatus)
+	mux.HandleFunc("POST /api/oauth/confirm", s.act(s.confirmAccountReplacement))
+	mux.HandleFunc("POST /api/accounts/{name}/remove", s.act(s.removeAccount))
 
 	mux.Handle("GET /", http.FileServerFS(ui))
 	return mux

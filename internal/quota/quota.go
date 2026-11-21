@@ -18,6 +18,8 @@ import (
 // Window is one limit. Left is the remaining fraction, 0..1, whatever the provider reports.
 type Window struct {
 	ID             string     `json:"id,omitempty"`
+	GroupID        string     `json:"group_id,omitempty"`
+	Group          string     `json:"group,omitempty"`
 	Inferred       bool       `json:"inferred,omitempty"`
 	ResetEstimated bool       `json:"reset_estimated,omitempty"`
 	Name           string     `json:"name"`
@@ -33,6 +35,7 @@ type Result struct {
 	Meta         [][2]string `json:"meta,omitempty"`
 	Resets       *Resets     `json:"resets,omitempty"`
 	Error        string      `json:"error,omitempty"`
+	Warning      string      `json:"warning,omitempty"`
 	At           time.Time   `json:"at"`
 }
 
