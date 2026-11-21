@@ -1,4 +1,4 @@
-import { quotaSlots, quotaGroups } from './quota-view.mjs';
+import { quotaSlots, geminiSlots } from './quota-view.mjs';
 
 // lastcall UI. Reads /api/snapshot from the lastcall backend; never talks to CPA directly.
 (() => {
@@ -99,12 +99,12 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
   const slots = a => quotaSlots(a.quota?.windows ?? []);
 
   // Sum the same-named limit across a provider's accounts: two accounts make a 200% pool.
-  function pool(provider, groupID) {
-    const accts = snap.accounts.filter(a => a.provider === provider).map(a => groupID == null ? a : { ...a, quota: { ...a.quota, windows: quotaGroups(a.quota?.windows ?? []).find(g => g.id === groupID)?.windows ?? [] } });
+  function pool(provider) {
+    const accts = snap.accounts.filter(a => a.provider === provider).map(a => provider !== 'antigravity' ? a : { ...a, quota: { ...a.quota, windows: geminiSlots(a.quota?.windows ?? []).filter(Boolean) } });
     const pick = kind => {
       const first = accts.map(a => slots(a).find(w => w?.kind === kind)).find(Boolean);
       if (!first) return null;
-      const name = groupID != null || kind === '5h' ? null : first.name;
+      const name = kind === '5h' ? null : first.name;
       const parts = accts.map(a => {
         const w = (a.quota?.windows ?? []).filter(x => x.kind === kind && (!name || x.name === name))
           .reduce((x, y) => (!x || y.left < x.left ? y : x), null);
@@ -168,7 +168,7 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
       return `<div class="total" style="--c:${p.color}">
         <div class="who">${logo(p.logo, p.color, 18)}${p.name}<small>${esc(sub)}</small>
           <button class="pin on" data-pin="${id}" title="Unpin">${PIN(true)}</button></div>
-        ${id === 'antigravity' ? quotaGroups(pl.accts.flatMap(a => a.quota?.windows ?? [])).map(g => `<section class="quota-group"><h4>${esc(g.name)}</h4>${totalLimits(pool(id, g.id), now)}</section>`).join('') || '<div class="when">Quota pending…</div>' : totalLimits(pl, now)}
+        ${totalLimits(pl, now)}
       </div>`;
     }).join('');
   }
@@ -207,8 +207,7 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
 
   function accountLimits(a, shade, now) {
     if (a.provider !== 'antigravity') return slots(a).map(w => limRow(w, shade, now)).join('');
-    const groups = quotaGroups(a.quota?.windows ?? []);
-    return groups.map(g => `<section class="quota-group"><h4>${esc(g.name)}</h4>${quotaSlots(g.windows).map((w, i) => limRow(w ? { ...w, name: `${i === 0 ? '5-hour' : 'Weekly'} remaining` } : { name: `${i === 0 ? '5-hour' : 'Weekly'} unavailable`, left: null }, shade, now)).join('')}</section>`).join('') || `<div class="meta">${a.quota?.error ? 'Quota unavailable' : a.disabled ? 'Quota not read while disabled' : 'Quota pending…'}</div>`;
+    return geminiSlots(a.quota?.windows ?? []).map((w, i) => limRow(w ? { ...w, name: i === 0 ? '5-hour' : 'Weekly' } : { name: `${i === 0 ? '5-hour' : 'Weekly'} not reported`, left: null }, shade, now)).join('');
   }
 
   function drawSubs(now) {
@@ -316,7 +315,7 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
       removing = true;
       button.disabled = true;
       try {
-        await api('POST', `/api/accounts/${encodeURIComponent(account.name)}/remove`, { auth_index: account.auth_index });
+        await api('POST', `/api/accounts/${encodeURIComponent(account.name)}/remove`, { auth_index: account.auth_index, identity: account.identity });
         dialog.close();
         toast('Account removed. History kept.');
         await load();
@@ -356,20 +355,24 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
           return;
         }
         timer = setTimeout(poll, 2000);
-      } catch (err) { error(err.message); }
+      } catch (err) {
+        error(err.message);
+        const retry = dialog.scrim.querySelector('[data-retry]');
+        if (retry) retry.hidden = false;
+      }
     };
     const start = async provider => {
       if (started) return;
       started = true;
       dialog.scrim.querySelectorAll('[data-login]').forEach(button => { button.disabled = true; });
       try {
-        const login = await api('POST', '/api/oauth/start', { provider, mode, ...(account ? { name: account.name, auth_index: account.auth_index } : {}) });
+        const login = await api('POST', '/api/oauth/start', { provider, mode, ...(account ? { name: account.name, auth_index: account.auth_index, identity: account.identity } : {}) });
         state = login.state;
         if (closed) return;
         if (login.url) window.open(login.url, '_blank', 'noopener');
         dialog.render(`${target}${login.user_code ? `<div>Enter this code on the page that opened:</div><div class="code">${esc(login.user_code)}</div>` : '<div>Finish signing in on the tab that opened.</div>'}
           ${login.url ? `<a href="${esc(login.url)}" target="_blank" rel="noopener">Open sign-in page</a>` : ''}
-          <div role="status">Waiting for sign-in…</div><div class="error" role="alert"></div><div class="row"><button class="btn" data-close>Close</button></div>`);
+          <div role="status">Waiting for sign-in…</div><div class="error" role="alert"></div><div class="row"><button class="btn" data-retry hidden>Retry status</button><button class="btn" data-close>Close</button></div>`);
         timer = setTimeout(poll, 2000);
       } catch (err) {
         started = false;
@@ -379,6 +382,11 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
     };
     dialog.scrim.addEventListener('click', async e => {
       if (e.target.closest('[data-close]')) { if (!confirming) close(); return; }
+      if (e.target.closest('[data-retry]')) {
+        e.target.closest('[data-retry]').hidden = true;
+        error('');
+        return poll();
+      }
       const login = e.target.closest('[data-login]');
       if (login) return start(login.dataset.login);
       const confirm = e.target.closest('[data-confirm]');
@@ -386,7 +394,7 @@ import { quotaSlots, quotaGroups } from './quota-view.mjs';
       confirm.disabled = true;
       confirming = true;
       try {
-        const result = await api('POST', '/api/oauth/confirm', { state, name: account.name, auth_index: account.auth_index });
+        const result = await api('POST', '/api/oauth/confirm', { state, name: account.name, auth_index: account.auth_index, identity: account.identity });
         if (!closed) success(result);
       } catch (err) { error(err.message); confirm.disabled = false; }
       finally { confirming = false; }

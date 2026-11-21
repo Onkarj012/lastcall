@@ -2,7 +2,7 @@
 
 Implement distinct add, reconnect, replace and remove actions. A replacement retains the selected old credential until a verified new login succeeds and the user confirms the identity change. Failed, ambiguous or mismatched logins must not remove it. Removal keeps recorded history, clears local quota and pause state, and affects only the selected credential.
 
-Fetch Antigravity quota across partial endpoint responses, preserve group and bucket IDs, and fetch the plan independently. Show every reported quota group with separate 5-hour and weekly limits. Missing Gemini quota is explicit. The user selected option A with all groups visible, within the existing dashboard style.
+Fetch Antigravity quota across partial endpoint responses, preserve group and bucket IDs, and fetch the plan independently. The user revised the chosen design after seeing the installed app. Show only primary Gemini 5-hour and weekly limits in the existing compact card and provider total. Other groups remain in the backend response. Missing Gemini quota is explicit.
 
 Preserve history, sync configuration and unrelated credentials. Sync continues to exchange observations only. Do not add Antigravity history or new service-management commands.
 

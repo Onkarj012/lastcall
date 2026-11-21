@@ -376,22 +376,18 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 		return r, fmt.Errorf("no usable quota windows returned")
 	}
 	if !seenGemini {
-		r.Warning = "Gemini quota is unavailable. Showing only the groups Antigravity returned."
+		r.Warning = "Gemini quota is unavailable. Try refreshing again later."
 	} else {
-		periods := make(map[string]map[string]bool)
+		five, weekly := false, false
 		for _, w := range r.Windows {
-			if periods[w.GroupID] == nil {
-				periods[w.GroupID] = make(map[string]bool)
-			}
-			periods[w.GroupID][w.Kind] = true
+			five = five || w.ID == "gemini-5h" && w.Kind == "5h"
+			weekly = weekly || w.ID == "gemini-weekly" && w.Kind == "week"
 		}
-		for _, kinds := range periods {
-			if !kinds["5h"] || !kinds["week"] {
-				r.Warning = "Some Antigravity limits are unavailable. Showing only the windows returned."
-				break
-			}
+		if !five || !weekly {
+			r.Warning = "Gemini did not report both 5-hour and weekly limits."
 		}
 	}
+
 	// Plan lookup is supplemental; a failure must not discard quota windows.
 	var plan struct {
 		PaidTier *struct {

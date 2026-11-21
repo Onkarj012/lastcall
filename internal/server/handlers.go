@@ -16,6 +16,7 @@ import (
 )
 
 type accountView struct {
+	Identity       string        `json:"identity"`
 	RuntimeOnly    bool          `json:"runtime_only"`
 	Name           string        `json:"name"`
 	AuthIndex      string        `json:"auth_index"`
@@ -65,7 +66,7 @@ func (s *Server) snapshot() snapshot {
 	}
 	for _, c := range s.creds {
 		v := accountView{
-			RuntimeOnly: c.RuntimeOnly, Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
+			Identity: credentialVersion(c), RuntimeOnly: c.RuntimeOnly, Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
 			Label:  firstNonEmpty(c.Email, c.Label, strings.TrimSuffix(c.Name, ".json")),
 			Status: c.Status, StatusMessage: c.StatusMessage, Disabled: c.Disabled, Unavailable: c.Unavailable,
 			NextRetryAfter: c.NextRetryAfter, Priority: c.Priority, Success: c.Success, Failed: c.Failed,

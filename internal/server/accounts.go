@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -42,6 +44,11 @@ func credentialIdentity(c cpa.Credential) string {
 	return strings.Join([]string{c.Name, c.ID, c.AuthIndex, strings.ToLower(firstNonEmpty(c.Provider, c.Type)), strings.ToLower(c.Email), c.ProjectID, id}, "\x00")
 }
 
+func credentialVersion(c cpa.Credential) string {
+	sum := sha256.Sum256([]byte(credentialIdentity(c)))
+	return hex.EncodeToString(sum[:])
+}
+
 func sameAccount(a, b cpa.Credential) bool {
 	if a.IDToken != nil && b.IDToken != nil && a.IDToken.ChatGPTAccountID != "" && b.IDToken.ChatGPTAccountID != "" {
 		return a.IDToken.ChatGPTAccountID == b.IDToken.ChatGPTAccountID
@@ -80,6 +87,7 @@ func (s *Server) startAccountOAuth(ctx context.Context, r *http.Request) (any, e
 		Mode      string `json:"mode"`
 		Name      string `json:"name"`
 		AuthIndex string `json:"auth_index"`
+		Identity  string `json:"identity"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil {
 		return nil, badRequest("oauth needs {provider, mode, name, auth_index}")
@@ -111,7 +119,7 @@ func (s *Server) startAccountOAuth(ctx context.Context, r *http.Request) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if body.AuthIndex == "" || target.AuthIndex != body.AuthIndex {
+		if body.AuthIndex == "" || target.AuthIndex != body.AuthIndex || body.Identity != credentialVersion(target) {
 			return nil, badRequest("selected account changed; refresh first")
 		}
 		if body.Mode == "replace" && target.Email == "" && (target.IDToken == nil || target.IDToken.ChatGPTAccountID == "") {
@@ -299,12 +307,13 @@ func (s *Server) deleteSelected(ctx context.Context, target cpa.Credential, cand
 func (s *Server) removeAccount(ctx context.Context, r *http.Request) (any, error) {
 	var body struct {
 		AuthIndex string `json:"auth_index"`
+		Identity  string `json:"identity"`
 	}
 	if json.NewDecoder(r.Body).Decode(&body) != nil || body.AuthIndex == "" {
 		return nil, badRequest("remove needs {auth_index}")
 	}
 	target, ok := s.credByName(r.PathValue("name"))
-	if !ok || target.AuthIndex != body.AuthIndex {
+	if !ok || target.AuthIndex != body.AuthIndex || body.Identity != credentialVersion(target) {
 		return nil, badRequest("selected account changed; refresh first")
 	}
 	if err := s.deleteSelected(ctx, target, nil); err != nil {

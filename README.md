@@ -21,7 +21,7 @@ and the full panel stays at `/management.html`.
   its expiry and can spend one (with a confirm).
 - **Quota history.** A separate `/history` page automatically saves Claude and Codex allowance readings. Watch Claude and Codex accounts together, with 5-hour and weekly readings from today, 7 days, or 30 days.
 - **Accounts.** Add a login, reconnect the same account, replace it with a different account, or remove a saved login. Replacement keeps the old login until the new identity is verified and you confirm it. Removing a login keeps recorded history.
-- **Antigravity groups.** Gemini and Claude/GPT quotas each show their own 5-hour and weekly remaining allowance. Partial responses show a warning; unavailable limits are not assumed to be full.
+- **Antigravity.** The compact card shows Gemini's 5-hour and weekly remaining allowance. Other reported groups stay out of the dashboard. Missing Gemini limits show a warning and are not assumed to be full.
 
 | Provider | Quota source | Banked resets |
 |---|---|---|

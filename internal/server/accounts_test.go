@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -89,7 +90,7 @@ func accountRequest(body string) *http.Request {
 }
 func beginReplace(t *testing.T, s *Server) {
 	t.Helper()
-	if _, err := s.startAccountOAuth(context.Background(), accountRequest(`{"mode":"replace","name":"old.json","auth_index":"1"}`)); err != nil {
+	if _, err := s.startAccountOAuth(context.Background(), accountRequest(fmt.Sprintf(`{"mode":"replace","name":"old.json","auth_index":"1","identity":%q}`, s.snapshot().Accounts[0].Identity))); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -189,7 +190,7 @@ func TestIdentityChangeInvalidatesInflightCacheAndPause(t *testing.T) {
 	if valid || cached || len(s.st.Snapshot().Pauses) != 0 {
 		t.Fatal("old identity survives")
 	}
-	req := accountRequest(`{"auth_index":"1"}`)
+	req := accountRequest(fmt.Sprintf(`{"auth_index":"1","identity":%q}`, credentialVersion(old)))
 	req.SetPathValue("name", old.Name)
 	// The browser selection may have the same index, but the cached target must
 	// still match the identity CPA lists immediately before deletion.
@@ -205,7 +206,7 @@ func TestIdentityChangeInvalidatesInflightCacheAndPause(t *testing.T) {
 }
 func TestReconnectRejectsDifferentIdentity(t *testing.T) {
 	s, f := accountTestServer(t)
-	if _, err := s.startAccountOAuth(context.Background(), accountRequest(`{"mode":"reconnect","name":"old.json","auth_index":"1"}`)); err != nil {
+	if _, err := s.startAccountOAuth(context.Background(), accountRequest(fmt.Sprintf(`{"mode":"reconnect","name":"old.json","auth_index":"1","identity":%q}`, s.snapshot().Accounts[0].Identity))); err != nil {
 		t.Fatal(err)
 	}
 	f.mu.Lock()
@@ -253,5 +254,26 @@ func TestInflightFetchCannotRestoreRemovedCredential(t *testing.T) {
 	s.mu.Unlock()
 	if ok {
 		t.Fatal("in-flight fetch restored removed credential")
+	}
+}
+
+func TestRemovalRejectsIdentityChangedSinceDisplayedSnapshot(t *testing.T) {
+	s, f := accountTestServer(t)
+	selected := s.snapshot().Accounts[0]
+	body, err := json.Marshal(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.creds[0].Email = "different@example.com"
+	f.mu.Unlock()
+	s.refreshCreds(context.Background())
+	req := accountRequest(string(body))
+	req.SetPathValue("name", selected.Name)
+	if _, err := s.removeAccount(context.Background(), req); err == nil {
+		t.Fatal("removed a different identity after the cache refreshed")
+	}
+	if len(f.deleted) != 0 {
+		t.Fatal(f.deleted)
 	}
 }

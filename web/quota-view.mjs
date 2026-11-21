@@ -4,15 +4,7 @@ export function quotaSlots(windows) {
   return [tightest('5h'), tightest('week') ?? tightest('month')];
 }
 
-export function quotaGroups(windows) {
-  const groups = new Map();
-  for (const window of windows) {
-    const id = window.group_id || window.group || 'unknown';
-    if (!groups.has(id)) groups.set(id, { id, name: window.group || 'Other quota', windows: [] });
-    groups.get(id).windows.push(window);
-  }
-  return [...groups.values()].sort((a, b) => {
-    const gemini = group => group.windows.some(w => w.id?.toLowerCase().startsWith('gemini-'));
-    return Number(gemini(b)) - Number(gemini(a)) || a.name.localeCompare(b.name);
-  });
+export function geminiSlots(windows) {
+  const primary = windows.filter(w => w.id === 'gemini-5h' || w.id === 'gemini-weekly');
+  return quotaSlots(primary);
 }

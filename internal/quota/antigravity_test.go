@@ -106,7 +106,7 @@ func TestAntigravityZeroUsableWindowsIsError(t *testing.T) {
 func TestAntigravityMergesGeminiFirstPartialResponse(t *testing.T) {
 	c := &antigravityFixtureCaller{responses: map[string]string{
 		antigravityHosts[0]: `{"groups":[{"displayName":"Gemini models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.7}]}]}`,
-		antigravityHosts[1]: `{"groups":[{"displayName":"Gemini models","buckets":[{"bucketId":"gemini-week","window":"weekly","remainingFraction":0.4}]},{"displayName":"Claude and GPT models","buckets":[{"bucketId":"claude-5h","window":"5h","remainingFraction":0.9},{"bucketId":"claude-week","window":"weekly","remainingFraction":0.8}]}]}`,
+		antigravityHosts[1]: `{"groups":[{"displayName":"Gemini models","buckets":[{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.4}]},{"displayName":"Claude and GPT models","buckets":[{"bucketId":"claude-5h","window":"5h","remainingFraction":0.9},{"bucketId":"claude-week","window":"weekly","remainingFraction":0.8}]}]}`,
 		antigravityHosts[2]: `{"groups":[]}`,
 		antigravityPlanURL:  `{"currentTier":{"name":"Pro"}}`,
 	}}
