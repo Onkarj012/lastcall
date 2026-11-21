@@ -365,9 +365,6 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 				}
 			}
 		}
-		if seenGemini {
-			break
-		}
 	}
 	if !hadSuccess {
 		if lastErr == nil {
@@ -380,6 +377,20 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 	}
 	if !seenGemini {
 		r.Warning = "Gemini quota is unavailable. Showing only the groups Antigravity returned."
+	} else {
+		periods := make(map[string]map[string]bool)
+		for _, w := range r.Windows {
+			if periods[w.GroupID] == nil {
+				periods[w.GroupID] = make(map[string]bool)
+			}
+			periods[w.GroupID][w.Kind] = true
+		}
+		for _, kinds := range periods {
+			if !kinds["5h"] || !kinds["week"] {
+				r.Warning = "Some Antigravity limits are unavailable. Showing only the windows returned."
+				break
+			}
+		}
 	}
 	// Plan lookup is supplemental; a failure must not discard quota windows.
 	var plan struct {

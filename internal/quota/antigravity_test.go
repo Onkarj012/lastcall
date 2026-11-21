@@ -102,3 +102,21 @@ func TestAntigravityZeroUsableWindowsIsError(t *testing.T) {
 		t.Fatalf("expected hard error for no usable windows; result=%+v err=%v", r, err)
 	}
 }
+
+func TestAntigravityMergesGeminiFirstPartialResponse(t *testing.T) {
+	c := &antigravityFixtureCaller{responses: map[string]string{
+		antigravityHosts[0]: `{"groups":[{"displayName":"Gemini models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.7}]}]}`,
+		antigravityHosts[1]: `{"groups":[{"displayName":"Gemini models","buckets":[{"bucketId":"gemini-week","window":"weekly","remainingFraction":0.4}]},{"displayName":"Claude and GPT models","buckets":[{"bucketId":"claude-5h","window":"5h","remainingFraction":0.9},{"bucketId":"claude-week","window":"weekly","remainingFraction":0.8}]}]}`,
+		antigravityHosts[2]: `{"groups":[]}`,
+		antigravityPlanURL:  `{"currentTier":{"name":"Pro"}}`,
+	}}
+	r, err := antigravity(context.Background(), c, cpa.Credential{ProjectID: "p"})
+	if err != nil || len(r.Windows) != 4 || r.Warning != "" {
+		t.Fatalf("partial Gemini response hid other limits: result=%+v err=%v", r, err)
+	}
+	c.responses[antigravityHosts[1]] = `{"groups":[]}`
+	r, err = antigravity(context.Background(), c, cpa.Credential{ProjectID: "p"})
+	if err != nil || len(r.Windows) != 1 || r.Warning == "" {
+		t.Fatalf("missing weekly window was not reported: result=%+v err=%v", r, err)
+	}
+}
