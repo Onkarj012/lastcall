@@ -238,8 +238,9 @@ import { quotaSlots, geminiSlots } from './quota-view.mjs';
   }
 
   function menu(a) {
-    const five = (a.quota?.windows ?? []).some(w => w.kind === '5h' && w.reset_at && new Date(w.reset_at) > Date.now());
-    const week = (a.quota?.windows ?? []).some(w => w.kind === 'week' && w.reset_at && new Date(w.reset_at) > Date.now());
+    const windows = a.provider === 'antigravity' ? geminiSlots(a.quota?.windows ?? []).filter(Boolean) : (a.quota?.windows ?? []);
+    const five = windows.some(w => w.kind === '5h' && w.reset_at && new Date(w.reset_at) > Date.now());
+    const week = windows.some(w => w.kind === 'week' && w.reset_at && new Date(w.reset_at) > Date.now());
     const n = esc(a.name);
     return `<div class="menu">
       ${a.pause ? `<button data-act="resume" data-name="${n}">Resume now</button>` : ''}

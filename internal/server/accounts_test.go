@@ -277,3 +277,34 @@ func TestRemovalRejectsIdentityChangedSinceDisplayedSnapshot(t *testing.T) {
 		t.Fatal(f.deleted)
 	}
 }
+
+func TestAntigravityPauseUsesDisplayedGeminiReset(t *testing.T) {
+	now := time.Now()
+	hidden := now.Add(time.Hour)
+	five := now.Add(3 * time.Hour)
+	weekly := now.Add(6 * 24 * time.Hour)
+	s := &Server{creds: []cpa.Credential{{Name: "ag", Provider: "antigravity"}}, quota: map[string]quota.Result{
+		"ag": {Windows: []quota.Window{
+			{ID: "3p-5h", Kind: "5h", ResetAt: &hidden},
+			{ID: "3p-weekly", Kind: "week", ResetAt: &hidden},
+			{ID: "gemini-5h", Kind: "5h", ResetAt: &five},
+			{ID: "gemini-weekly", Kind: "week", ResetAt: &weekly},
+		}},
+	}}
+	for kind, want := range map[string]time.Time{"5h": five, "week": weekly} {
+		got, err := s.pauseUntil("ag", 0, kind)
+		if err != nil || !got.Equal(want) {
+			t.Fatalf("%s reset = %v, %v; want %v", kind, got, err, want)
+		}
+	}
+	r := s.quota["ag"]
+	r.Windows = r.Windows[:2]
+	s.quota["ag"] = r
+	if _, err := s.pauseUntil("ag", 0, "5h"); err == nil {
+		t.Fatal("hidden reset accepted without Gemini reset")
+	}
+	s.creds[0].Provider = "codex"
+	if got, err := s.pauseUntil("ag", 0, "5h"); err != nil || !got.Equal(hidden) {
+		t.Fatalf("other provider reset changed: %v, %v", got, err)
+	}
+}

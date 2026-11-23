@@ -171,9 +171,19 @@ func (s *Server) pauseUntil(name string, minutes int, until string) (time.Time, 
 	}
 	s.mu.Lock()
 	r, ok := s.quota[name]
+	antigravity := false
+	for _, c := range s.creds {
+		if c.Name == name {
+			antigravity = quota.Provider(firstNonEmpty(c.Provider, c.Type)) == "antigravity"
+			break
+		}
+	}
 	s.mu.Unlock()
 	if ok {
 		for _, w := range r.Windows {
+			if antigravity && w.ID != "gemini-5h" && w.ID != "gemini-weekly" {
+				continue
+			}
 			if w.Kind == kind && w.ResetAt != nil && w.ResetAt.After(time.Now()) {
 				return *w.ResetAt, nil
 			}
