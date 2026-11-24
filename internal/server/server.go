@@ -45,7 +45,11 @@ type Server struct {
 	refreshing  bool
 	sweepQueued bool
 
-	quotaMu sync.Mutex // one quota sweep at a time
+	accountsMu  sync.Mutex
+	oauthMu     sync.Mutex
+	sessions    map[string]*oauthSession
+	generations map[string]uint64
+	quotaMu     sync.Mutex // one quota sweep at a time
 }
 
 func New(cpaURL string, c *cpa.Client, st *state.Store, quotaEvery time.Duration) *Server {
@@ -79,6 +83,8 @@ func (s *Server) Run(ctx context.Context) {
 }
 
 func (s *Server) refreshCreds(ctx context.Context) {
+	s.accountsMu.Lock()
+	defer s.accountsMu.Unlock()
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	creds, err := s.cpa.Credentials(cctx)
@@ -100,9 +106,40 @@ func (s *Server) refreshCreds(ctx context.Context) {
 		}
 		return creds[i].Name < creds[j].Name
 	})
+	changed := false
+	if s.generations == nil {
+		s.generations = map[string]uint64{}
+	}
+	for _, old := range s.creds {
+		found := false
+		for _, c := range creds {
+			if c.Name == old.Name && credentialIdentity(c) == credentialIdentity(old) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			delete(s.quota, old.Name)
+			s.generations[old.Name]++
+			_ = s.st.Update(func(d *state.Data) { delete(d.Pauses, old.Name) })
+			changed = true
+		}
+	}
+	for _, c := range creds {
+		found := false
+		for _, old := range s.creds {
+			if c.Name == old.Name && credentialIdentity(c) == credentialIdentity(old) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			changed = true
+		}
+	}
 	s.creds, s.credsAt, s.credsErr = creds, time.Now(), ""
 	// First successful listing (e.g. the key file just appeared): don't wait for the timer.
-	if s.quotaAt.IsZero() && !s.refreshing && len(creds) > 0 && !s.sweepQueued {
+	if (changed || s.quotaAt.IsZero()) && len(creds) > 0 && !s.sweepQueued {
 		s.sweepQueued = true
 		go s.refreshQuota(context.WithoutCancel(ctx))
 	}
@@ -115,6 +152,10 @@ func (s *Server) refreshQuota(ctx context.Context) {
 	defer s.quotaMu.Unlock()
 	s.mu.Lock()
 	creds := append([]cpa.Credential(nil), s.creds...)
+	generations := make(map[string]uint64, len(creds))
+	for _, c := range creds {
+		generations[c.Name] = s.generations[c.Name]
+	}
 	s.refreshing = true
 	s.sweepQueued = false
 	s.mu.Unlock()
@@ -141,6 +182,10 @@ func (s *Server) refreshQuota(ctx context.Context) {
 			defer cancel()
 			r := s.fetchQuota(qctx, c)
 			s.mu.Lock()
+			if !s.currentCredentialLocked(c, generations[c.Name]) {
+				s.mu.Unlock()
+				return
+			}
 			if r.Error != "" {
 				// Keep the last good windows so a transient upstream error doesn't blank the card.
 				if prev, ok := s.quota[c.Name]; ok && prev.Error == "" {
@@ -246,10 +291,15 @@ func (s *Server) useReset(ctx context.Context, name string) (string, error) {
 	}
 	s.mu.Lock()
 	r := s.quota[name]
+	generation := s.generations[name]
 	s.mu.Unlock()
 	msg, err := quota.UseReset(ctx, s.cpa, c, r.Resets)
 	fresh := s.fetchQuota(ctx, c)
 	s.mu.Lock()
+	if !s.currentCredentialLocked(c, generation) {
+		s.mu.Unlock()
+		return msg, err
+	}
 	switch {
 	case fresh.Error == "":
 		s.quota[name] = fresh

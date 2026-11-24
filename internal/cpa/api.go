@@ -2,6 +2,7 @@ package cpa
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 )
@@ -10,6 +11,8 @@ import (
 // Only fields lastcall uses are decoded; `account` is skipped on purpose because
 // for API-key credentials it holds the key itself.
 type Credential struct {
+	UpdatedAt      string        `json:"updated_at"`
+	ModTime        string        `json:"modtime"`
 	ID             string        `json:"id"`
 	AuthIndex      string        `json:"auth_index"`
 	Name           string        `json:"name"`
@@ -117,4 +120,13 @@ func (c *Client) OAuthStatus(ctx context.Context, state string) (OAuthStatus, er
 	var out OAuthStatus
 	err := c.do(ctx, http.MethodGet, "/oauth/status", url.Values{"state": {state}}, nil, &out)
 	return out, err
+}
+
+// RemoveCredential deletes one persisted auth file. CPA v8 auth_files_crud.go
+// accepts name as a query parameter; omitting it can select a batch operation.
+func (c *Client) RemoveCredential(ctx context.Context, name string) error {
+	if name == "" {
+		return fmt.Errorf("credential name is required")
+	}
+	return c.do(ctx, http.MethodDelete, "/credentials", url.Values{"name": {name}}, nil, nil)
 }

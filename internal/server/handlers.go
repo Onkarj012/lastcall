@@ -16,6 +16,8 @@ import (
 )
 
 type accountView struct {
+	Identity       string        `json:"identity"`
+	RuntimeOnly    bool          `json:"runtime_only"`
 	Name           string        `json:"name"`
 	AuthIndex      string        `json:"auth_index"`
 	Provider       string        `json:"provider"`
@@ -64,7 +66,7 @@ func (s *Server) snapshot() snapshot {
 	}
 	for _, c := range s.creds {
 		v := accountView{
-			Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
+			Identity: credentialVersion(c), RuntimeOnly: c.RuntimeOnly, Name: c.Name, AuthIndex: c.AuthIndex, Provider: quota.Provider(firstNonEmpty(c.Provider, c.Type)),
 			Label:  firstNonEmpty(c.Email, c.Label, strings.TrimSuffix(c.Name, ".json")),
 			Status: c.Status, StatusMessage: c.StatusMessage, Disabled: c.Disabled, Unavailable: c.Unavailable,
 			NextRetryAfter: c.NextRetryAfter, Priority: c.Priority, Success: c.Success, Failed: c.Failed,
@@ -150,26 +152,10 @@ func (s *Server) Handler(ui fs.FS) http.Handler {
 		})
 	}))
 
-	mux.HandleFunc("POST /api/oauth/start", s.act(func(ctx context.Context, r *http.Request) (any, error) {
-		var body struct {
-			Provider string `json:"provider"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Provider == "" {
-			return nil, badRequest("oauth needs {provider}")
-		}
-		return s.cpa.StartOAuth(ctx, body.Provider)
-	}))
-	mux.HandleFunc("GET /api/oauth/status", func(w http.ResponseWriter, r *http.Request) {
-		st, err := s.cpa.OAuthStatus(r.Context(), r.URL.Query().Get("state"))
-		if err != nil {
-			writeErr(w, err)
-			return
-		}
-		if st.Status == "ok" {
-			s.refreshCreds(r.Context())
-		}
-		writeJSON(w, http.StatusOK, st)
-	})
+	mux.HandleFunc("POST /api/oauth/start", s.act(s.startAccountOAuth))
+	mux.HandleFunc("GET /api/oauth/status", s.accountOAuthStatus)
+	mux.HandleFunc("POST /api/oauth/confirm", s.act(s.confirmAccountReplacement))
+	mux.HandleFunc("POST /api/accounts/{name}/remove", s.act(s.removeAccount))
 
 	mux.Handle("GET /", http.FileServerFS(ui))
 	return mux
@@ -185,9 +171,19 @@ func (s *Server) pauseUntil(name string, minutes int, until string) (time.Time, 
 	}
 	s.mu.Lock()
 	r, ok := s.quota[name]
+	antigravity := false
+	for _, c := range s.creds {
+		if c.Name == name {
+			antigravity = quota.Provider(firstNonEmpty(c.Provider, c.Type)) == "antigravity"
+			break
+		}
+	}
 	s.mu.Unlock()
 	if ok {
 		for _, w := range r.Windows {
+			if antigravity && w.ID != "gemini-5h" && w.ID != "gemini-weekly" {
+				continue
+			}
 			if w.Kind == kind && w.ResetAt != nil && w.ResetAt.After(time.Now()) {
 				return *w.ResetAt, nil
 			}

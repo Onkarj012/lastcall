@@ -1,3 +1,5 @@
+import { quotaSlots, geminiSlots } from './quota-view.mjs';
+
 // lastcall UI. Reads /api/snapshot from the lastcall backend; never talks to CPA directly.
 (() => {
   const MIN = 60e3, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -34,9 +36,9 @@
       return `${Math.floor(ms / HOUR)}h ago`;
     },
     pct: x => `${Math.round(x * 100)}%`,
-    clock: t => new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
-    day: t => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-    time: t => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+    clock: t => new Date(t).toLocaleString('en-US', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }),
+    day: t => new Date(t).toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' }),
+    time: t => new Date(t).toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false }),
   };
   const until = (t, now) => t ? fmt.in(new Date(t) - now) : '—';
   const state = left => left <= 0.02 ? 'out' : left < 0.2 ? 'low' : '';
@@ -90,22 +92,15 @@
   // ---- derived ----
   const shadeOf = a => {
     const p = prov(a.provider);
-    const i = snap.accounts.filter(x => x.provider === a.provider).indexOf(a);
+    const i = snap.accounts.filter(x => x.provider === a.provider).findIndex(x => x.name === a.name);
     return p.shades[i % p.shades.length];
   };
 
-  // Every card shows exactly two limit rows: the tightest 5-hour window, then weekly
-  // (or monthly) ones. Model-specific extras stay off the card. Missing rows are null.
-  function slots(a) {
-    const ws = a.quota?.windows ?? [];
-    const five = ws.filter(w => w.kind === '5h').reduce((x, y) => (!x || y.left < x.left ? y : x), null);
-    const out = [five, ...ws.filter(w => w.kind === 'week'), ...ws.filter(w => w.kind === 'month')].filter(Boolean);
-    return [out[0] ?? null, out[1] ?? null];
-  }
+  const slots = a => quotaSlots(a.quota?.windows ?? []);
 
   // Sum the same-named limit across a provider's accounts: two accounts make a 200% pool.
   function pool(provider) {
-    const accts = snap.accounts.filter(a => a.provider === provider);
+    const accts = snap.accounts.filter(a => a.provider === provider).map(a => provider !== 'antigravity' ? a : { ...a, quota: { ...a.quota, windows: geminiSlots(a.quota?.windows ?? []).filter(Boolean) } });
     const pick = kind => {
       const first = accts.map(a => slots(a).find(w => w?.kind === kind)).find(Boolean);
       if (!first) return null;
@@ -131,7 +126,7 @@
     drawStatus(now);
     drawTotals(now);
     drawSubs(now);
-    $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.length} credentials · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
+    $('stamp').textContent = `${fmt.clock(snap.now)} · ${snap.accounts.filter(a => !a.disabled).length} enabled · ${snap.accounts.length} saved · quota ${snap.quota_at && new Date(snap.quota_at).getFullYear() > 2000 ? fmt.time(snap.quota_at) : 'pending'}`;
   }
 
   function drawStatus(now) {
@@ -151,25 +146,29 @@
         : `Can't reach CLIProxyAPI: <span class="mono">${esc(snap.error)}</span>`;
   }
 
+  function totalLimits(pl, now) {
+    const main = pl.five ?? pl.week, side = pl.five ? pl.week : null;
+    const big = (w, cls) => `<div class="n ${cls} ${w.left / w.cap <= 0.02 ? 'out' : ''}"><b>${Math.round(w.left * 100)}%</b><span>/ ${w.cap * 100}%</span></div>`;
+    return main ? `<div class="row2">
+      <div><div class="k">${main.kind === '5h' ? '5-hour remaining' : 'Weekly remaining'}</div>${big(main, '')}${seg(main.parts, 7)}
+        <div class="when">${main.next ? `next reset in <b>${fmt.in(main.next - now)}</b>` : 'reset time unavailable'}</div></div>
+      ${side ? `<div><div class="k">Weekly remaining</div>${big(side, 'sm')}${seg(side.parts, 4)}
+        <div class="when">next reset in <b>${side.next ? fmt.in(side.next - now) : '—'}</b></div></div>` : '<div></div>'}
+    </div>` : `<div class="when">Quota unavailable.</div>`;
+  }
+
   function drawTotals(now) {
     const present = [...new Set(snap.accounts.map(a => a.provider))];
     const shown = snap.pins.filter(p => present.includes(p));
     $('totals').style.setProperty('--n', Math.max(1, shown.length));
     $('totals').innerHTML = shown.map(id => {
       const p = prov(id), pl = pool(id);
-      const main = pl.five ?? pl.week, side = pl.five ? pl.week : null;
       const plan = pl.accts.map(a => a.plan).filter(Boolean);
       const sub = pl.accts.length > 1 ? `${pl.accts.length} accounts combined${plan.length ? ` · ${[...new Set(plan)].join(', ')}` : ''}` : (plan[0] ?? '1 account');
-      const big = (w, cls) => `<div class="n ${cls} ${w.left / w.cap <= 0.02 ? 'out' : ''}"><b>${Math.round(w.left * 100)}%</b><span>/ ${w.cap * 100}%</span></div>`;
       return `<div class="total" style="--c:${p.color}">
         <div class="who">${logo(p.logo, p.color, 18)}${p.name}<small>${esc(sub)}</small>
           <button class="pin on" data-pin="${id}" title="Unpin">${PIN(true)}</button></div>
-        ${main ? `<div class="row2">
-          <div><div class="k">${main.kind === '5h' ? '5-hour' : 'Weekly'}</div>${big(main, '')}${seg(main.parts, 7)}
-            <div class="when">${main.next ? `next reset in <b>${fmt.in(main.next - now)}</b>` : 'idle'}</div></div>
-          ${side ? `<div><div class="k">Weekly</div>${big(side, 'sm')}${seg(side.parts, 4)}
-            <div class="when">next reset in <b>${side.next ? fmt.in(side.next - now) : '—'}</b></div></div>` : '<div></div>'}
-        </div>` : `<div class="when" style="margin-top:14px">No quota yet.</div>`}
+        ${totalLimits(pl, now)}
       </div>`;
     }).join('');
   }
@@ -180,12 +179,13 @@
     if (a.disabled) return `<span class="badge bad">disabled</span>`;
     if (a.unavailable) return `<span class="badge warn">cooling${a.next_retry_after ? ` · ${until(a.next_retry_after, now)}` : ''}</span>`;
     if (a.status === 'error') return `<span class="badge bad" title="${esc(a.status_message)}">error</span>`;
+    if (a.quota?.warning && !a.quota?.error) return `<span class="badge warn">quota incomplete</span>`;
     if (a.quota?.error) return `<span class="badge warn" title="${esc(a.quota.error)}">quota stale</span>`;
     return `<span class="badge ok">active</span>`;
   }
 
   // Lay provider groups into columns (each group stays in one column, shortest column
-  // first) and give every card an explicit cell, so all rows share one height.
+  // first) and give every card an explicit cell.
   function layout(groups) {
     const width = $('subs').clientWidth || 1200;
     const n = Math.max(1, Math.min(groups.length, Math.floor((width + 14) / (360 + 14))));
@@ -199,9 +199,15 @@
   }
 
   function limRow(w, shade, now) {
+    if (w?.left === null) return `<div class="lim empty"><div class="t"><span>${esc(w.name)}</span><span>—</span></div></div>`;
     if (!w) return `<div class="lim empty"><div class="t"><span>—</span><span class="v"></span></div><div class="track"></div></div>`;
     return `<div class="lim"><div class="t"><span>${esc(w.name)}</span><span class="v ${state(w.left)}">${fmt.pct(w.left)}<em>${until(w.reset_at, now)}</em></span></div>
       <div class="track"><i style="width:${w.left * 100}%;background:${state(w.left) === 'out' ? 'var(--out)' : shade}"></i></div></div>`;
+  }
+
+  function accountLimits(a, shade, now) {
+    if (a.provider !== 'antigravity') return slots(a).map(w => limRow(w, shade, now)).join('');
+    return geminiSlots(a.quota?.windows ?? []).map((w, i) => limRow(w ? { ...w, name: i === 0 ? '5-hour' : 'Weekly' } : { name: `${i === 0 ? '5-hour' : 'Weekly'} not reported`, left: null }, shade, now)).join('');
   }
 
   function drawSubs(now) {
@@ -215,11 +221,13 @@
       const renews = (q?.meta ?? []).find(([k]) => k === 'renews');
       const foot = [renews && `renews ${esc(renews[1])}`, q?.at ? `read ${fmt.ago(now - new Date(q.at))}` : !a.supported ? 'quota not supported' : a.disabled ? 'not read while disabled' : 'quota pending…'].filter(Boolean);
       return `<div class="sub ${pinned ? '' : 'dim'} ${a.disabled ? 'off' : ''}" style="grid-column:${col};grid-row:${row}" data-name="${esc(a.name)}">
-        <div class="top"><div class="who">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
+        <div class="top"><div class="who" title="${esc(a.label)}">${logo(p.logo, a.disabled ? '#77716c' : shade, 15)}${p.name} · ${short(a.label)}<small>${esc(a.plan ?? '')}</small></div>
           <button class="pin ${pinned ? 'on' : ''}" data-pin="${a.provider}" title="${pinned ? 'Unpin' : 'Pin'} ${p.name}">${PIN(pinned)}</button>
           <button class="more" data-menu="${esc(a.name)}" title="Actions">⋯</button></div>
         <div class="badges">${status(a, now)}</div>
-        ${slots(a).map(w => limRow(w, shade, now)).join('')}
+        ${accountLimits(a, shade, now)}
+        ${q?.warning ? `<div class="qerr">${esc(q.warning)}</div>` : ''}
+        ${q?.error ? `<div class="qerr">${esc(q.error)}</div>` : ''}
         <div class="foot">
           ${rs ? `<button class="rbtn" data-resets="${esc(a.name)}">↺ ${rs.left} reset${rs.left === 1 ? '' : 's'}</button>` : `<span class="rnone">no banked resets</span>`}
           <span class="meta">${foot.join(' · ')}</span>
@@ -230,8 +238,9 @@
   }
 
   function menu(a) {
-    const five = (a.quota?.windows ?? []).some(w => w.kind === '5h' && w.reset_at && new Date(w.reset_at) > Date.now());
-    const week = (a.quota?.windows ?? []).some(w => w.kind === 'week' && w.reset_at && new Date(w.reset_at) > Date.now());
+    const windows = a.provider === 'antigravity' ? geminiSlots(a.quota?.windows ?? []).filter(Boolean) : (a.quota?.windows ?? []);
+    const five = windows.some(w => w.kind === '5h' && w.reset_at && new Date(w.reset_at) > Date.now());
+    const week = windows.some(w => w.kind === 'week' && w.reset_at && new Date(w.reset_at) > Date.now());
     const n = esc(a.name);
     return `<div class="menu">
       ${a.pause ? `<button data-act="resume" data-name="${n}">Resume now</button>` : ''}
@@ -241,7 +250,9 @@
       <button data-act="pause" data-until="week" data-name="${n}" ${a.disabled || !week ? 'disabled' : ''}>Pause until weekly reset</button>
       <hr>
       ${a.disabled ? `<button data-act="enable" data-name="${n}">Enable</button>` : `<button class="danger" data-act="disable" data-name="${n}">Disable</button>`}
-      <button data-act="relogin" data-provider="${esc(a.provider)}">Re-login ${prov(a.provider).name}…</button>
+      ${a.runtime_only ? '' : `<button data-act="reconnect" data-name="${n}">Reconnect this account…</button>
+      <button data-act="replace" data-name="${n}">Replace account…</button>
+      <button class="danger" data-act="remove" data-name="${n}">Remove account…</button>`}
     </div>`;
   }
 
@@ -269,46 +280,126 @@
     document.body.append(scrim);
   }
 
-  // ---- login modal ----
-  function loginModal(provider) {
+  function accountDialog(title, body) {
+    const previous = document.activeElement;
     const scrim = document.createElement('div');
     scrim.className = 'scrim';
-    let state = null, timer = null;
-    const close = () => { clearInterval(timer); scrim.remove(); load(); };
-    const pickView = () => `<div class="modal"><h3>Log in an account</h3>
-      <div class="provs">${LOGIN.map(([id, n]) => `<button data-login="${id}">${logo(prov(id).logo, prov(id).color, 16)}${n}</button>`).join('')}</div>
-      <div class="mute" style="font-size:12px">Opens the provider's login in a new tab. CPA stores the credential; logging in an account it already has updates it in place.</div>
-      <div class="row"><button class="btn" data-close>Cancel</button></div></div>`;
-    const start = async id => {
+    const close = () => { scrim.remove(); previous?.isConnected && previous.focus(); };
+    const render = content => {
+      scrim.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title"><h3 id="account-dialog-title">${esc(title)}</h3>${content}</div>`;
+      scrim.querySelector('button, a')?.focus();
+    };
+    scrim.addEventListener('keydown', e => {
+      if (e.key === 'Escape') scrim.querySelector('[data-close]')?.click();
+      if (e.key !== 'Tab') return;
+      const controls = [...scrim.querySelectorAll('button:not(:disabled), a[href]')];
+      const first = controls[0], last = controls.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    });
+    document.body.append(scrim);
+    render(body);
+    return { scrim, close, render };
+  }
+
+  function removeModal(account) {
+    const dialog = accountDialog('Remove account', `<div class="identity">${esc(prov(account.provider).name)} · ${esc(account.label)}</div>
+      <div class="meta identity">${esc(account.name)}</div>
+      <div>This removes this saved login from CLIProxyAPI. You will need to sign in again to use it. Recorded history stays.</div>
+      <div class="error" role="alert"></div><div class="row"><button class="btn" data-close>Cancel</button><button class="btn" data-remove>Remove account</button></div>`);
+    let removing = false;
+    dialog.scrim.addEventListener('click', async e => {
+      if (removing) return;
+      if (e.target.closest('[data-close]')) return dialog.close();
+      const button = e.target.closest('[data-remove]');
+      if (!button) return;
+      removing = true;
+      button.disabled = true;
       try {
-        const s = await api('POST', '/api/oauth/start', { provider: id });
-        state = s.state;
-        if (s.url) window.open(s.url, '_blank', 'noopener');
-        scrim.innerHTML = `<div class="modal"><h3>${prov(id).name} login</h3>
-          ${s.user_code ? `<div>Enter this code on the page that opened:</div><div class="code">${esc(s.user_code)}</div>` : '<div>Finish signing in on the tab that opened.</div>'}
-          ${s.url ? `<div style="font-size:12px">Tab didn't open? <a href="${esc(s.url)}" target="_blank" rel="noopener">Open login page</a></div>` : ''}
-          <div class="mute" id="lstatus">Waiting for the provider…</div>
-          <div class="row"><button class="btn" data-close>Close</button></div></div>`;
-        timer = setInterval(async () => {
-          try {
-            const st = await fetch(`/api/oauth/status?state=${encodeURIComponent(state)}`).then(r => r.json());
-            if (st.status === 'ok') { clearInterval(timer); toast(`${prov(id).name} account saved`); close(); }
-            else if (st.status === 'error') { clearInterval(timer); scrim.querySelector('#lstatus').innerHTML = `<span class="out">${esc(st.error || 'login failed')}</span>`; }
-          } catch { /* keep polling */ }
-        }, 2000);
-      } catch (e) {
-        toast(e.message, true);
-        close();
+        await api('POST', `/api/accounts/${encodeURIComponent(account.name)}/remove`, { auth_index: account.auth_index, identity: account.identity });
+        dialog.close();
+        toast('Account removed. History kept.');
+        await load();
+      } catch (err) {
+        dialog.scrim.querySelector('[role="alert"]').textContent = err.message;
+      } finally { removing = false; button.disabled = false; }
+    });
+  }
+
+  function loginModal(account = null, mode = 'add') {
+    const title = mode === 'replace' ? 'Replace account' : mode === 'reconnect' ? 'Reconnect account' : 'Add account';
+    const target = account ? `<div class="identity">${esc(prov(account.provider).name)} · ${esc(account.label)}</div><div class="meta identity">${esc(account.name)}</div>` : '';
+    const dialog = accountDialog(title, `${target}
+      ${account ? `<div>${mode === 'replace' ? 'Sign in with the new account. Keep the current login until the new account is verified and you confirm the replacement.' : 'Sign in with this same account to renew its connection.'}</div><button class="btn primary" data-login="${esc(account.provider)}">Continue to sign in</button>` : `<div class="provs">${LOGIN.map(([id, n]) => `<button data-login="${id}">${logo(prov(id).logo, prov(id).color, 16)}${n}</button>`).join('')}</div><div class="mute">Adding an account keeps your other saved logins.</div>`}
+      <div class="error" role="alert"></div><div class="row"><button class="btn" data-close>Cancel</button></div>`);
+    let state = null, timer = null, started = false, closed = false, confirming = false;
+    const close = () => { closed = true; clearTimeout(timer); dialog.close(); load(); };
+    const error = message => { if (!closed) dialog.scrim.querySelector('[role="alert"]').textContent = message; };
+    const success = status => {
+      const label = status.candidates?.[0]?.label || (account ? prov(account.provider).name : 'account');
+      toast(`${mode === 'replace' ? 'Replaced with' : mode === 'reconnect' ? 'Reconnected' : 'Account saved:'} ${label}`);
+      close();
+    };
+    const poll = async () => {
+      try {
+        const status = await api('GET', `/api/oauth/status?state=${encodeURIComponent(state)}`);
+        if (closed) return;
+        if (status.status === 'ok') return success(status);
+        if (status.status === 'error') return error(status.error || 'Sign-in failed. The previous account was kept.');
+        if (status.status === 'confirm') {
+          const candidate = status.candidates?.[0];
+          if (!candidate) return error('The new account could not be identified. The previous account was kept.');
+          dialog.render(`<div>New account verified. Confirm the replacement.</div><div class="identity"><span class="mute">Remove</span><br>${esc(account.label)}</div>
+            <div class="identity"><span class="mute">Keep</span><br>${esc(candidate.label)}<div class="meta">${esc(candidate.name)}</div></div>
+            <div>Recorded history stays. Cancel keeps both saved logins.</div><div class="error" role="alert"></div>
+            <div class="row"><button class="btn" data-close>Cancel</button><button class="btn primary" data-confirm>Replace account</button></div>`);
+          return;
+        }
+        timer = setTimeout(poll, 2000);
+      } catch (err) {
+        error(err.message);
+        const retry = dialog.scrim.querySelector('[data-retry]');
+        if (retry) retry.hidden = false;
       }
     };
-    scrim.addEventListener('click', e => {
-      if (e.target === scrim || e.target.closest('[data-close]')) close();
-      const b = e.target.closest('[data-login]');
-      if (b) start(b.dataset.login);
+    const start = async provider => {
+      if (started) return;
+      started = true;
+      dialog.scrim.querySelectorAll('[data-login]').forEach(button => { button.disabled = true; });
+      try {
+        const login = await api('POST', '/api/oauth/start', { provider, mode, ...(account ? { name: account.name, auth_index: account.auth_index, identity: account.identity } : {}) });
+        state = login.state;
+        if (closed) return;
+        if (login.url) window.open(login.url, '_blank', 'noopener');
+        dialog.render(`${target}${login.user_code ? `<div>Enter this code on the page that opened:</div><div class="code">${esc(login.user_code)}</div>` : '<div>Finish signing in on the tab that opened.</div>'}
+          ${login.url ? `<a href="${esc(login.url)}" target="_blank" rel="noopener">Open sign-in page</a>` : ''}
+          <div role="status">Waiting for sign-in…</div><div class="error" role="alert"></div><div class="row"><button class="btn" data-retry hidden>Retry status</button><button class="btn" data-close>Close</button></div>`);
+        timer = setTimeout(poll, 2000);
+      } catch (err) {
+        started = false;
+        error(err.message);
+        dialog.scrim.querySelectorAll('[data-login]').forEach(button => { button.disabled = false; });
+      }
+    };
+    dialog.scrim.addEventListener('click', async e => {
+      if (e.target.closest('[data-close]')) { if (!confirming) close(); return; }
+      if (e.target.closest('[data-retry]')) {
+        e.target.closest('[data-retry]').hidden = true;
+        error('');
+        return poll();
+      }
+      const login = e.target.closest('[data-login]');
+      if (login) return start(login.dataset.login);
+      const confirm = e.target.closest('[data-confirm]');
+      if (!confirm || confirm.disabled) return;
+      confirm.disabled = true;
+      confirming = true;
+      try {
+        const result = await api('POST', '/api/oauth/confirm', { state, name: account.name, auth_index: account.auth_index, identity: account.identity });
+        if (!closed) success(result);
+      } catch (err) { error(err.message); confirm.disabled = false; }
+      finally { confirming = false; }
     });
-    scrim.innerHTML = pickView();
-    document.body.append(scrim);
-    if (provider) start(provider);
   }
 
   // ---- events ----
@@ -334,7 +425,9 @@
           return run('Disabled', () => api('POST', path + 'disable'));
         case 'enable': return run('Enabled', () => api('POST', path + 'enable'));
         case 'resume': return run('Resumed', () => api('POST', path + 'resume'));
-        case 'relogin': draw(); return loginModal(act.dataset.provider);
+        case 'reconnect':
+        case 'replace': draw(); return loginModal(snap.accounts.find(a => a.name === name), act.dataset.act);
+        case 'remove': draw(); return removeModal(snap.accounts.find(a => a.name === name));
       }
     }
     if (openMenu && !t.closest('.menu')) { openMenu = null; draw(); }

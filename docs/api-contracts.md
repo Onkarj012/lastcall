@@ -446,6 +446,14 @@ CPA `internal/api/handlers/management/handler.go:263-398`, plus availability mid
 
 ---
 
+## Lastcall account lifecycle
+
+Lastcall binds OAuth state to the requested add, reconnect or replace action for ten minutes. Reconnect requires the selected identity. Replacement identifies one new or updated credential from the before/after listing, then requires an explicit POST confirmation of the old credential's name and auth index. Missing or ambiguous identity changes fail without deleting the old credential. The confirmed OAuth result is retained within the Lastcall session because CPA expires terminal status shortly after completion.
+
+`DELETE /credentials?name=<filename>` removes one persisted credential through CPA. Lastcall re-lists immediately before deletion and checks identity against the fingerprint sent with the displayed account, rejects runtime-only accounts, and never uses the batch deletion form. CPA has no atomic identity precondition, so an external replacement between that check and deletion remains possible. Removed logins lose local quota and pause state; recorded history and sync settings remain. An in-flight quota fetch cannot repopulate a removed or replaced credential's live cache.
+
+Antigravity quota now tries production first, then daily and sandbox as needed, retaining groups and deduplicating bucket IDs across partial responses. Gemini availability is detected by bucket ID. Supplemental plan lookup uses `loadCodeAssist`. Quota windows expose group and bucket identity to the dashboard. A missing fraction in an identified bucket means proto3 zero; explicit null or invalid fractions are omitted.
+
 ## Unverified / open
 
 1. **Upstream payload units and fields seen live.** Everything in section 2 is what the panel *parses*, not what I saw on the wire. Unconfirmed:
