@@ -5,18 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"lastcall/internal/cpa"
 )
 
 type antigravityFixtureCaller struct {
-	responses map[string]string
-	errors    map[string]error
-	calls     []cpa.APICallRequest
+	responses  map[string]string
+	errors     map[string]error
+	calls      []cpa.APICallRequest
+	beforeCall func(context.Context, cpa.APICallRequest)
 }
 
-func (f *antigravityFixtureCaller) APICall(_ context.Context, req cpa.APICallRequest) (cpa.APICallResponse, error) {
+func (f *antigravityFixtureCaller) APICall(ctx context.Context, req cpa.APICallRequest) (cpa.APICallResponse, error) {
 	f.calls = append(f.calls, req)
+	if f.beforeCall != nil {
+		f.beforeCall(ctx, req)
+	}
 	if err := f.errors[req.URL]; err != nil {
 		return cpa.APICallResponse{}, err
 	}
@@ -118,5 +123,67 @@ func TestAntigravityMergesGeminiFirstPartialResponse(t *testing.T) {
 	r, err = antigravity(context.Background(), c, cpa.Credential{ProjectID: "p"})
 	if err != nil || len(r.Windows) != 1 || r.Warning == "" {
 		t.Fatalf("missing weekly window was not reported: result=%+v err=%v", r, err)
+	}
+}
+
+func TestAntigravityPrefersDailyUsageOverProductionFullQuota(t *testing.T) {
+	const daily = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const sandbox = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const production = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const usage = `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.8858309,"resetTime":"2026-11-24T08:30:17Z"},{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.9714577,"resetTime":"2026-12-01T03:30:17Z"}]}]}`
+	const full = `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":1,"resetTime":"2026-11-24T13:21:26Z"},{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":1,"resetTime":"2026-12-01T08:21:26Z"}]}]}`
+	for _, source := range []string{daily, sandbox, production} {
+		t.Run(source, func(t *testing.T) {
+			c := &antigravityFixtureCaller{responses: map[string]string{daily: usage, sandbox: usage, production: full, antigravityPlanURL: `{}`}, errors: map[string]error{}}
+			if source != daily {
+				c.errors[daily] = errors.New("daily unavailable")
+			}
+			if source == production {
+				c.errors[sandbox] = errors.New("sandbox unavailable")
+			}
+			r, err := antigravity(context.Background(), c, cpa.Credential{ProjectID: "p"})
+			if err != nil || len(r.Windows) != 2 {
+				t.Fatalf("result=%+v err=%v", r, err)
+			}
+			wantFive, wantWeek, wantReset := 0.8858309, 0.9714577, "2026-11-24T08:30:17Z"
+			if source == production {
+				wantFive, wantWeek, wantReset = 1, 1, "2026-11-24T13:21:26Z"
+			}
+			if r.Windows[0].Left != wantFive || r.Windows[1].Left != wantWeek || r.Windows[0].ResetAt == nil || r.Windows[0].ResetAt.Format("2006-01-02T15:04:05Z07:00") != wantReset {
+				t.Fatalf("wrong source won: %+v", r.Windows)
+			}
+		})
+	}
+}
+
+func TestAntigravityReservesTimeForProductionFallback(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	productionCalled := false
+	c := &antigravityFixtureCaller{responses: map[string]string{
+		antigravityHosts[2]: `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.6},{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.7}]}]}`,
+		antigravityPlanURL:  `{}`,
+	}, errors: map[string]error{antigravityHosts[0]: context.DeadlineExceeded, antigravityHosts[1]: context.DeadlineExceeded}}
+	c.beforeCall = func(attempt context.Context, req cpa.APICallRequest) {
+		switch req.URL {
+		case antigravityHosts[0], antigravityHosts[1]:
+			deadline, ok := attempt.Deadline()
+			if !ok || time.Until(deadline) > 150*time.Millisecond {
+				t.Fatal("attempt did not reserve time for remaining hosts")
+			}
+			<-attempt.Done()
+		case antigravityHosts[2]:
+			productionCalled = true
+			if attempt.Err() != nil {
+				t.Fatal("production received expired context")
+			}
+		}
+	}
+	r, err := antigravity(ctx, c, cpa.Credential{ProjectID: "p"})
+	if err != nil || !productionCalled || len(r.Windows) != 2 || r.Windows[0].Left != 0.6 {
+		t.Fatalf("production fallback failed: result=%+v err=%v", r, err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("fallback exhausted account deadline")
 	}
 }
