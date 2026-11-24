@@ -309,9 +309,16 @@ func antigravity(ctx context.Context, c Caller, cred cpa.Credential) (Result, er
 	seenBuckets := make(map[string]bool)
 	seenGemini := false
 	hadSuccess := false
-	for _, u := range antigravityHosts {
+	for i, u := range antigravityHosts {
+		// Share the remaining deadline with later hosts and supplemental plan lookup.
+		budget := 20 * time.Second
+		if deadline, ok := ctx.Deadline(); ok {
+			budget = min(budget, time.Until(deadline)/time.Duration(len(antigravityHosts)-i+1))
+		}
+		attempt, cancel := context.WithTimeout(ctx, budget)
 		out.Groups = nil
-		err := call(ctx, c, cred.AuthIndex, "POST", u, h, string(body), &out)
+		err := call(attempt, c, cred.AuthIndex, "POST", u, h, string(body), &out)
+		cancel()
 		if err != nil {
 			lastErr = err
 			continue
