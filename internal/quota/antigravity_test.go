@@ -120,3 +120,33 @@ func TestAntigravityMergesGeminiFirstPartialResponse(t *testing.T) {
 		t.Fatalf("missing weekly window was not reported: result=%+v err=%v", r, err)
 	}
 }
+
+func TestAntigravityPrefersDailyUsageOverProductionFullQuota(t *testing.T) {
+	const daily = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const sandbox = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const production = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary"
+	const usage = `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.8858309,"resetTime":"2026-11-24T08:30:17Z"},{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":0.9714577,"resetTime":"2026-12-01T03:30:17Z"}]}]}`
+	const full = `{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":1,"resetTime":"2026-11-24T13:21:26Z"},{"bucketId":"gemini-weekly","window":"weekly","remainingFraction":1,"resetTime":"2026-12-01T08:21:26Z"}]}]}`
+	for _, source := range []string{daily, sandbox, production} {
+		t.Run(source, func(t *testing.T) {
+			c := &antigravityFixtureCaller{responses: map[string]string{daily: usage, sandbox: usage, production: full, antigravityPlanURL: `{}`}, errors: map[string]error{}}
+			if source != daily {
+				c.errors[daily] = errors.New("daily unavailable")
+			}
+			if source == production {
+				c.errors[sandbox] = errors.New("sandbox unavailable")
+			}
+			r, err := antigravity(context.Background(), c, cpa.Credential{ProjectID: "p"})
+			if err != nil || len(r.Windows) != 2 {
+				t.Fatalf("result=%+v err=%v", r, err)
+			}
+			wantFive, wantWeek, wantReset := 0.8858309, 0.9714577, "2026-11-24T08:30:17Z"
+			if source == production {
+				wantFive, wantWeek, wantReset = 1, 1, "2026-11-24T13:21:26Z"
+			}
+			if r.Windows[0].Left != wantFive || r.Windows[1].Left != wantWeek || r.Windows[0].ResetAt == nil || r.Windows[0].ResetAt.Format("2006-01-02T15:04:05Z07:00") != wantReset {
+				t.Fatalf("wrong source won: %+v", r.Windows)
+			}
+		})
+	}
+}

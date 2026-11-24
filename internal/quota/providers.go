@@ -269,10 +269,12 @@ func planFromToken(cred cpa.Credential) string {
 
 // ---- Antigravity: cloudcode-pa retrieveUserQuotaSummary ----
 
+// Production can return full-quota placeholders while daily reports usage.
+// The first usable reading wins for each bucket, so keep daily ahead of fallbacks.
 var antigravityHosts = []string{
-	"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 	"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary",
+	"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary",
 }
 
 const antigravityPlanURL = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
