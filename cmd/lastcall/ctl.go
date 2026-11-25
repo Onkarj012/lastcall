@@ -75,13 +75,10 @@ func runCtl(args []string, stdout io.Writer) int {
 		if len(operands) != 0 {
 			return ctlFail(stdout, errors.New(ctlUsage))
 		}
-		var snap struct {
-			Accounts []ctlAccount `json:"accounts"`
-		}
-		if err := c.do(http.MethodGet, "/api/snapshot", nil, &snap); err != nil {
+		accounts, err := c.accounts()
+		if err != nil {
 			return ctlFail(stdout, err)
 		}
-		accounts := snap.Accounts
 		if accounts == nil {
 			accounts = []ctlAccount{}
 		}
@@ -148,13 +145,27 @@ func parsePause(spec string) (pauseRequest, error) {
 
 // resolve finds the one account that match names. It never picks among several.
 func (c ctlClient) resolve(match string) (ctlAccount, error) {
-	var snap struct {
-		Accounts []ctlAccount `json:"accounts"`
-	}
-	if err := c.do(http.MethodGet, "/api/snapshot", nil, &snap); err != nil {
+	accounts, err := c.accounts()
+	if err != nil {
 		return ctlAccount{}, err
 	}
-	return resolveAccount(snap.Accounts, match)
+	return resolveAccount(accounts, match)
+}
+
+// accounts reads the server's account list. An empty list with a server error means
+// lastcall could not reach CPA, so it fails instead of claiming there are no accounts.
+func (c ctlClient) accounts() ([]ctlAccount, error) {
+	var snap struct {
+		Accounts []ctlAccount `json:"accounts"`
+		Error    string       `json:"error"`
+	}
+	if err := c.do(http.MethodGet, "/api/snapshot", nil, &snap); err != nil {
+		return nil, err
+	}
+	if len(snap.Accounts) == 0 && snap.Error != "" {
+		return nil, errors.New("lastcall cannot list accounts: " + snap.Error)
+	}
+	return snap.Accounts, nil
 }
 
 func resolveAccount(accounts []ctlAccount, match string) (ctlAccount, error) {

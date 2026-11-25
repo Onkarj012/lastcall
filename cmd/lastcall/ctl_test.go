@@ -146,3 +146,17 @@ func TestCtlAmbiguousMatchExitsOne(t *testing.T) {
 		t.Fatalf("unexpected output: %s", out.String())
 	}
 }
+
+func TestCtlListFailsWhenSnapshotHasErrorAndNoAccounts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"accounts":[],"error":"management key missing"}`))
+	}))
+	defer srv.Close()
+	var out bytes.Buffer
+	if code := runCtl([]string{"-url", srv.URL, "list"}, &out); code != 1 {
+		t.Fatalf("exit = %d, want 1; out = %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "management key missing") {
+		t.Fatalf("output %s does not carry the server error", out.String())
+	}
+}

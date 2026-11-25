@@ -1,7 +1,8 @@
 # Controlling accounts from an agent
 
-Use `lastcall ctl` to pause, disable or enable an account from a shell. Every command prints one JSON object to stdout.
-It exits 0 on success and 1 on any error, so check the exit code or the `ok` field.
+Use `lastcall ctl` to pause, disable or enable an account from a shell. Every command exits 0 on success and 1 on
+any error, so check the exit code first. On success, `list` prints a JSON array of accounts. The other commands print
+a JSON object with `"ok": true`. Every error prints a JSON object with `"ok": false` and an `error` message.
 
 ```sh
 lastcall ctl list
