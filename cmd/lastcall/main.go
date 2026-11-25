@@ -23,6 +23,9 @@ import (
 
 // main starts local recording and optional history sync with independent listeners.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "ctl" {
+		os.Exit(runCtl(os.Args[2:], os.Stdout))
+	}
 	home, _ := os.UserHomeDir()
 	listen := flag.String("listen", "127.0.0.1:8318", "address to serve the UI on (keep it loopback)")
 	cpaURL := flag.String("cpa", "http://127.0.0.1:8317", "CLIProxyAPI base URL")

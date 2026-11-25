@@ -81,6 +81,11 @@ Every call goes through the Go backend; the browser never sees the management ke
 
 Endpoint contracts and their sources are in [docs/api-contracts.md](docs/api-contracts.md).
 
+## Agents
+
+An AI agent can pause, disable or enable an account from a shell with `lastcall ctl`, for example
+`lastcall ctl pause foo@gmail 3h`. Each command prints JSON. See [docs/agents.md](docs/agents.md).
+
 ## Quota history
 
 Open **History** from the dashboard. The default view starts at midnight IST today, with one Claude pool and one Codex pool. Each shows
