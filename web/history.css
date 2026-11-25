@@ -1,11 +1,5 @@
 .history-page { --card: #0f0f0f; --card-line: #222; --claude: #ed987b; --codex: #8cb4fa; display: flex; flex-direction: column; background: #060606; min-height: 100dvh; }
-.history-page .bar { flex: none; }
-.history-page .mark { color: var(--fg); text-decoration: none; }
-.history-page nav { display: flex; gap: 24px; height: 100%; }
-.history-page nav a { display: flex; align-items: center; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; }
-.history-page nav a:hover { color: var(--fg); }
-.history-page nav a[aria-current] { color: var(--fg); border-color: var(--brand); }
-.local-note { margin-left: auto; color: var(--mute); font: 11px var(--mono); }
+.local-note { color: var(--mute); font: 11px var(--mono); }
 [hidden] { display: none !important; }
 
 .history-main { min-width: 0; width: min(1280px, 100%); margin: 0 auto; padding: 28px 28px 40px; }
@@ -137,8 +131,7 @@
 .history-page :is(a, button, select, summary, svg, input, .table-scroll):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 
 @media (max-width: 700px) {
-  .history-page .bar { padding: 0 18px; gap: 22px; }
-  .local-note { display: none; }
+  .history-page .bar .right { display: none; }
   .history-main { padding: 20px 16px 32px; }
   .history-main h1 { font-size: 24px; }
   .toolbar { gap: 10px 12px; }

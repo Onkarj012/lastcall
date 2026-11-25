@@ -20,8 +20,12 @@ main[hidden] { display: none; }
 
 /* top bar */
 .bar { display: flex; align-items: center; gap: 26px; height: 56px; padding: 0 28px; border-bottom: 1px solid var(--line); }
-.mark { font-size: 21px; font-weight: 600; letter-spacing: -.04em; }
+.mark { font-size: 21px; font-weight: 600; letter-spacing: -.04em; color: var(--fg); text-decoration: none; }
 .mark span { color: var(--brand); font-weight: 500; }
+.bar nav { display: flex; gap: 24px; height: 100%; }
+.bar nav a { display: flex; align-items: center; color: var(--mute); text-decoration: none; border-bottom: 2px solid transparent; }
+.bar nav a:hover { color: var(--fg); }
+.bar nav a[aria-current] { color: var(--fg); border-color: var(--brand); }
 .bar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--mute2); }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: blink 2.4s infinite; }
 .dot.warn { background: var(--low); box-shadow: 0 0 8px var(--low); }
@@ -127,16 +131,13 @@ main[hidden] { display: none; }
 .toast.bad { border-color: var(--out); color: var(--out); }
 
 
-/* Page navigation uses the same controls as the account actions. */
-.nav-link { text-decoration: none; }
-
 .modal .identity { overflow-wrap: anywhere; }
 .modal .error { color: var(--out); font-size: 13px; overflow-wrap: anywhere; }
 .modal [role="status"] { font-size: 13px; color: var(--mute); }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 @media (max-width: 700px) {
   .bar { height: auto; min-height: 56px; padding: 12px 16px; flex-wrap: wrap; gap: 12px; }
-  .bar .right { flex-wrap: wrap; gap: 8px; }
+  .bar .right { flex-wrap: wrap; gap: 8px; flex-basis: 100%; margin-left: 0; }
   .bar #status { flex-basis: calc(100% - 24px); }
   .totals { grid-template-columns: 1fr; }
   .total { padding: 18px 16px; }
